@@ -489,6 +489,17 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "options": [],
         "validation": {},
         "display_order": 17,
+        "help_key": "settings.data_source.ALPHASIFT_ENABLED",
+        "examples": [
+            "ALPHASIFT_ENABLED=false",
+            "ALPHASIFT_ENABLED=true",
+        ],
+        "docs": [
+            {
+                "label": "AlphaSift 集成说明",
+                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/alphasift-integration.md",
+            },
+        ],
     },
     "ALPHASIFT_INSTALL_SPEC": {
         "title": "AlphaSift Install Spec",
@@ -503,6 +514,16 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "options": [],
         "validation": {},
         "display_order": 18,
+        "help_key": "settings.data_source.ALPHASIFT_INSTALL_SPEC",
+        "examples": [
+            "ALPHASIFT_INSTALL_SPEC=git+https://github.com/ZhuLinsen/alphasift.git",
+        ],
+        "docs": [
+            {
+                "label": "AlphaSift 集成说明",
+                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/alphasift-integration.md",
+            },
+        ],
     },
     "REALTIME_SOURCE_PRIORITY": {
         "title": "Realtime Source Priority",
