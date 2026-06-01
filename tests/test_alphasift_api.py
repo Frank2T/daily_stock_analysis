@@ -248,6 +248,36 @@ class AlphaSiftOpportunitiesApiTestCase(unittest.TestCase):
         ):
             alphasift_endpoint._require_admin_session_for_install(request)
 
+    def test_install_dependency_allows_localhost_source_runtime(self) -> None:
+        request = SimpleNamespace(
+            cookies={},
+            client=SimpleNamespace(host="127.0.0.1"),
+            url=SimpleNamespace(hostname="localhost"),
+        )
+
+        with (
+            patch.dict("os.environ", {"DSA_DESKTOP_MODE": "false"}, clear=False),
+            patch("api.v1.endpoints.alphasift.is_auth_enabled", return_value=False),
+        ):
+            alphasift_endpoint._require_admin_session_for_install(request)
+
+    def test_install_dependency_does_not_trust_loopback_proxy_for_public_host(self) -> None:
+        request = SimpleNamespace(
+            cookies={},
+            client=SimpleNamespace(host="127.0.0.1"),
+            url=SimpleNamespace(hostname="stocks.example.com"),
+        )
+
+        with (
+            patch.dict("os.environ", {"DSA_DESKTOP_MODE": "false"}, clear=False),
+            patch("api.v1.endpoints.alphasift.is_auth_enabled", return_value=False),
+        ):
+            with self.assertRaises(HTTPException) as caught:
+                alphasift_endpoint._require_admin_session_for_install(request)
+
+        self.assertEqual(caught.exception.status_code, 403)
+        self.assertEqual(caught.exception.detail["error"], "alphasift_install_auth_required")
+
     def test_install_dependency_requires_admin_auth_enabled(self) -> None:
         request = SimpleNamespace(cookies={})
 

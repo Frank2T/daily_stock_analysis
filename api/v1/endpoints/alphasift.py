@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import ipaddress
 import logging
 import math
 import os
@@ -75,7 +76,7 @@ def alphasift_strategies(config: Config = Depends(get_config_dep)) -> Dict[str, 
 
 
 def _require_admin_session_for_install(request: Request) -> None:
-    if os.getenv("DSA_DESKTOP_MODE") == "true":
+    if os.getenv("DSA_DESKTOP_MODE") == "true" or _is_local_alphasift_install_request(request):
         return
 
     if not is_auth_enabled():
@@ -96,6 +97,22 @@ def _require_admin_session_for_install(request: Request) -> None:
                 "message": "自动安装 AlphaSift 需要有效的管理员会话。",
             },
         )
+
+
+def _is_local_alphasift_install_request(request: Request) -> bool:
+    client_host = getattr(getattr(request, "client", None), "host", "") or ""
+    url_hostname = getattr(getattr(request, "url", None), "hostname", "") or ""
+    return _is_loopback_host(client_host) and _is_loopback_host(url_hostname)
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = (host or "").strip().strip("[]").lower()
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
 
 
 @router.post("/install")
