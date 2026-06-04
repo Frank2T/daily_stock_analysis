@@ -583,7 +583,7 @@ def _call_alphasift_screen(screen: Any, strategy: str, market: str, max_results:
     if supports_context:
         kwargs["context"] = _build_alphasift_context(config)
 
-    with _alphasift_runtime_env(config):
+    with _alphasift_runtime_env(config), _alphasift_dsa_daily_history_provider():
         try:
             return screen(strategy, **kwargs)
         except TypeError as exc:
@@ -608,12 +608,11 @@ def _call_alphasift_screen(screen: Any, strategy: str, market: str, max_results:
 @contextmanager
 def _alphasift_runtime_env(config: Config) -> Iterator[None]:
     updates = _build_alphasift_runtime_env(config)
-    if not updates:
-        yield
-        return
-
     sentinel = object()
     with _ALPHASIFT_RUNTIME_ENV_LOCK:
+        if not updates:
+            yield
+            return
         previous = {key: os.environ.get(key, sentinel) for key in updates}
         os.environ.update(updates)
         try:
@@ -624,6 +623,106 @@ def _alphasift_runtime_env(config: Config) -> Iterator[None]:
                     os.environ.pop(key, None)
                 else:
                     os.environ[key] = value  # type: ignore[assignment]
+
+
+@contextmanager
+def _alphasift_dsa_daily_history_provider() -> Iterator[None]:
+    try:
+        daily_module = importlib.import_module("alphasift.daily")
+    except Exception:
+        yield
+        return
+
+    original_fetch = getattr(daily_module, "fetch_daily_history", None)
+    if not callable(original_fetch):
+        yield
+        return
+
+    def fetch_daily_history_with_dsa(
+        code: str,
+        *,
+        lookback_days: int = 120,
+        source: str = "akshare",
+        retries: int = 2,
+    ) -> Any:
+        try:
+            dsa_df, dsa_source = _load_dsa_daily_history(code, lookback_days=lookback_days)
+            normalized = _normalize_dsa_daily_history(dsa_df)
+            if normalized is not None and not normalized.empty:
+                normalized.attrs["source"] = f"dsa:{dsa_source}"
+                return normalized
+        except Exception as exc:
+            logger.warning(
+                "AlphaSift DSA daily history fetch failed for %s; falling back to AlphaSift source %s: %s",
+                code,
+                source,
+                exc,
+            )
+        return original_fetch(code, lookback_days=lookback_days, source=source, retries=retries)
+
+    setattr(daily_module, "fetch_daily_history", fetch_daily_history_with_dsa)
+    try:
+        yield
+    finally:
+        setattr(daily_module, "fetch_daily_history", original_fetch)
+
+
+def _load_dsa_daily_history(code: str, *, lookback_days: int) -> Tuple[Any, str]:
+    from src.services.history_loader import load_history_df
+
+    normalized_code = _env_text(code).zfill(6)
+    days = max(int(lookback_days or 0), 30)
+    return load_history_df(normalized_code, days=days)
+
+
+def _normalize_dsa_daily_history(raw_df: Any) -> Any:
+    if raw_df is None:
+        return None
+
+    import pandas as pd
+
+    df = pd.DataFrame(raw_df).copy()
+    if df.empty:
+        return df
+
+    aliases = {
+        "date": ("date", "trade_date", "datetime", "日期"),
+        "open": ("open", "开盘"),
+        "high": ("high", "最高"),
+        "low": ("low", "最低"),
+        "close": ("close", "收盘", "price"),
+        "volume": ("volume", "vol", "成交量"),
+        "amount": ("amount", "成交额"),
+    }
+    normalized = pd.DataFrame(index=df.index)
+    for target, candidates in aliases.items():
+        source_column = next((column for column in candidates if column in df.columns), None)
+        if source_column is not None:
+            normalized[target] = df[source_column]
+
+    if "close" not in normalized.columns:
+        return pd.DataFrame()
+    for column in ("open", "high", "low"):
+        if column not in normalized.columns:
+            normalized[column] = normalized["close"]
+    if "volume" not in normalized.columns:
+        normalized["volume"] = 0
+
+    if "date" in normalized.columns:
+        normalized["date"] = normalized["date"].map(_normalize_daily_date_value)
+
+    for column in ("open", "high", "low", "close", "volume", "amount"):
+        if column in normalized.columns:
+            normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+    normalized = normalized.dropna(subset=["close"])
+    return normalized.reset_index(drop=True)
+
+
+def _normalize_daily_date_value(value: Any) -> str:
+    text = _env_text(value)
+    if len(text) == 8 and text.isdigit():
+        return f"{text[:4]}-{text[4:6]}-{text[6:]}"
+    return text
 
 
 def _build_alphasift_runtime_env(config: Config) -> Dict[str, str]:

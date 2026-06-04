@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - [文档] 明确 AnalysisContextPack P6 文档、迁移与回滚边界，并同步既有 `SAVE_CONTEXT_SNAPSHOT` 到 `.env.example`、配置注册表、Web 设置帮助和完整指南。
 - [文档] 补齐 #1386 P7 盘前/盘中/盘后分析的入口、迁移、回滚和用户可见说明。
+- [改进] AlphaSift 日 K 线特征补全优先复用 DSA 历史行情加载链路与多数据源 fallback，减少 AkShare 单源超时导致选股失败或长时间等待。
 
 ## [3.20.0] - 2026-06-03
 

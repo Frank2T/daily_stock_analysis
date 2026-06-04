@@ -7,7 +7,7 @@ import os
 import sys
 import threading
 import unittest
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any, Dict
 from unittest.mock import ANY, MagicMock, patch
 
@@ -607,6 +607,55 @@ class AlphaSiftOpportunitiesApiTestCase(unittest.TestCase):
 
         self.assertEqual(captured["snapshot_priority"], "tushare,em_datacenter")
         self.assertEqual(payload["candidate_count"], 0)
+
+    def test_screen_prefers_dsa_daily_history_for_alphasift_enrichment(self) -> None:
+        import pandas as pd
+
+        config = self._config(enabled=True)
+        captured: dict[str, object] = {}
+        alphasift_module = ModuleType("alphasift")
+        daily_module = ModuleType("alphasift.daily")
+        original_fetch = MagicMock(return_value=pd.DataFrame([{"close": 1.0}]))
+        daily_module.fetch_daily_history = original_fetch  # type: ignore[attr-defined]
+        alphasift_module.daily = daily_module  # type: ignore[attr-defined]
+        dsa_history = pd.DataFrame(
+            [
+                {
+                    "trade_date": "20260601",
+                    "open": 10.0,
+                    "high": 11.0,
+                    "low": 9.5,
+                    "close": 10.5,
+                    "vol": 12345,
+                    "amount": 67890,
+                }
+            ]
+        )
+
+        def screen_impl(_strategy: str, **_kwargs):
+            hist = daily_module.fetch_daily_history("600519", lookback_days=120, source="akshare", retries=2)  # type: ignore[attr-defined]
+            captured["columns"] = list(hist.columns)
+            captured["date"] = hist.loc[0, "date"]
+            captured["volume"] = hist.loc[0, "volume"]
+            captured["source"] = hist.attrs.get("source")
+            return {"candidates": []}
+
+        fake_module = _make_adapter_module(screen=MagicMock(side_effect=screen_impl))
+
+        with (
+            patch.dict(sys.modules, {"alphasift": alphasift_module, "alphasift.daily": daily_module}, clear=False),
+            patch("api.v1.endpoints.alphasift._load_dsa_daily_history", return_value=(dsa_history, "EfinanceFetcher")),
+            patch("api.v1.endpoints.alphasift._import_alphasift", return_value=fake_module),
+        ):
+            payload = self._screen(config, market="cn", strategy="dual_low", max_results=5)
+
+        self.assertEqual(payload["candidate_count"], 0)
+        self.assertEqual(captured["source"], "dsa:EfinanceFetcher")
+        self.assertEqual(captured["date"], "2026-06-01")
+        self.assertEqual(captured["volume"], 12345)
+        self.assertIn("volume", captured["columns"])
+        original_fetch.assert_not_called()
+        self.assertIs(daily_module.fetch_daily_history, original_fetch)  # type: ignore[attr-defined]
 
     def test_screen_filters_undeclared_managed_fallbacks_for_dsa_routes(self) -> None:
         config = Config(
