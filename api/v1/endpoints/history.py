@@ -259,6 +259,7 @@ def get_stock_bar(
         from datetime import date as date_type
         from src.utils.data_processing import parse_json_field
 
+        service = HistoryService(db_manager)
         start = date_type.fromisoformat(start_date) if start_date else None
         end = date_type.fromisoformat(end_date) if end_date else None
 
@@ -301,10 +302,11 @@ def get_stock_bar(
                 ),
                 limit=1,
             )[1]
+            display_stock_code = service._display_stock_code(record.code)
             items.append(
                 StockBarItem(
                     id=record.id,
-                    stock_code=record.code or "",
+                    stock_code=display_stock_code,
                     stock_name=record.name,
                     report_type=record.report_type,
                     sentiment_score=record.sentiment_score,
@@ -316,7 +318,10 @@ def get_stock_bar(
                         record.created_at.isoformat() if record.created_at else None
                     ),
                     model_used=normalize_model_used(model_used),
-                    market_phase_summary=extract_market_phase_summary(getattr(record, "context_snapshot", None)),
+                    market_phase_summary=service._display_market_phase_summary(
+                        record.code,
+                        getattr(record, "context_snapshot", None),
+                    ),
                 )
             )
 
@@ -385,7 +390,9 @@ def get_history_detail(
         # 同时不混用 `change_60d`（60 日累计涨跌幅）作为日内 change_pct 的兜底。
         context_snapshot = result.get("context_snapshot")
         analysis_context_pack_overview = extract_analysis_context_pack_overview(context_snapshot)
-        market_phase_summary = extract_market_phase_summary(context_snapshot)
+        market_phase_summary = result.get("market_phase_summary")
+        if market_phase_summary is None:
+            market_phase_summary = extract_market_phase_summary(context_snapshot)
         api_context_snapshot = sanitize_context_snapshot_for_api(context_snapshot)
         realtime_fields = extract_realtime_detail_fields(context_snapshot)
         current_price = realtime_fields.get("current_price")

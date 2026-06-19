@@ -207,6 +207,32 @@ class AnalysisHistoryTestCase(unittest.TestCase):
             self.assertEqual(row.stop_loss, 110.0)
             self.assertEqual(row.take_profit, 150.0)
 
+    def test_history_display_resolves_bare_jp_kr_code_from_stock_pool(self) -> None:
+        result = self._build_result()
+        result.code = "005930"
+        result.name = "Samsung Electronics"
+
+        saved = self.db.save_analysis_history(
+            result=result,
+            query_id="query_kr_bare",
+            report_type="simple",
+            news_content="news",
+            context_snapshot={"market_phase_summary": _market_phase_summary()},
+            save_snapshot=True,
+        )
+        self.assertGreater(saved, 0)
+
+        service = HistoryService(self.db)
+        with patch("src.services.history_service.resolve_index_stock_code", return_value="005930.KS"):
+            listing = service.get_history_list(page=1, limit=5)
+            detail = service.resolve_and_get_detail("query_kr_bare")
+
+        self.assertEqual(listing["items"][0]["stock_code"], "005930.KS")
+        self.assertEqual(listing["items"][0]["market_phase_summary"]["market"], "kr")
+        self.assertIsNotNone(detail)
+        self.assertEqual(detail["stock_code"], "005930.KS")
+        self.assertEqual(detail["market_phase_summary"]["market"], "kr")
+
     def test_save_analysis_history_persists_sniper_columns_via_shared_parser(self) -> None:
         """迁出 sniper parser 后历史狙击点位列仍按原规则保存。"""
         result = self._build_result()

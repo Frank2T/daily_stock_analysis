@@ -1477,6 +1477,29 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         self.assertIsNotNone(report.meta.market_phase_summary)
         self.assertEqual(report.meta.market_phase_summary.phase, "intraday")
 
+    def test_build_analysis_report_repairs_bare_kr_code_and_phase_summary(self) -> None:
+        if _build_analysis_report is None:
+            self.skipTest("analysis endpoint helpers unavailable in this environment")
+
+        with patch("api.v1.endpoints.analysis.resolve_index_stock_code", return_value="005930.KS"):
+            report = _build_analysis_report(
+                report_data={
+                    "meta": {"stock_code": "005930"},
+                    "summary": {},
+                    "strategy": {},
+                    "details": {},
+                },
+                query_id="q-kr-phase",
+                stock_code="005930",
+                stock_name="三星电子",
+                context_snapshot={"market_phase_summary": _market_phase_summary()},
+                fallback_fundamental_payload=None,
+            )
+
+        self.assertEqual(report.meta.stock_code, "005930.KS")
+        self.assertIsNotNone(report.meta.market_phase_summary)
+        self.assertEqual(report.meta.market_phase_summary.market, "kr")
+
     def test_build_analysis_report_merges_partial_top_level_context_with_fallback(self) -> None:
         if _build_analysis_report is None:
             self.skipTest("analysis endpoint helpers unavailable in this environment")
@@ -2168,6 +2191,45 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             stock_codes=["AAPL.US"],
             stock_name=None,
             original_query="AAPL.US",
+            selection_source="manual",
+            report_type="detailed",
+            analysis_phase="auto",
+            force_refresh=False,
+            notify=True,
+        )
+
+    def test_trigger_analysis_resolves_bare_code_from_stock_index_before_default_market(self) -> None:
+        if trigger_analysis is None:
+            self.skipTest("fastapi is not installed in this test environment")
+
+        queue = MagicMock()
+        queue.submit_tasks_batch.return_value = ([], [])
+
+        with patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue), \
+             patch("api.v1.endpoints.analysis.resolve_index_stock_code", return_value="005930.KS"), \
+             patch("api.v1.endpoints.analysis.resolve_name_to_code") as resolve_mock:
+            response = trigger_analysis(
+                request=SimpleNamespace(
+                    stock_code="005930",
+                    stock_codes=None,
+                    stock_name=None,
+                    original_query="005930",
+                    selection_source="manual",
+                    report_type="detailed",
+                    force_refresh=False,
+                    async_mode=True,
+                    notify=True,
+                    analysis_phase="auto",
+                ),
+                config=SimpleNamespace(),
+            )
+
+        self.assertEqual(response.status_code, 202)
+        resolve_mock.assert_not_called()
+        queue.submit_tasks_batch.assert_called_once_with(
+            stock_codes=["005930.KS"],
+            stock_name=None,
+            original_query="005930",
             selection_source="manual",
             report_type="detailed",
             analysis_phase="auto",

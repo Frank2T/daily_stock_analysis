@@ -16,6 +16,8 @@ from datetime import date, datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
 
 from src.config import get_config, resolve_news_window_days
+from src.core.trading_calendar import build_market_phase_context, get_market_for_stock
+from src.data.stock_index_loader import resolve_index_stock_code
 from src.report_language import (
     get_bias_status_emoji,
     get_localized_stock_name,
@@ -31,7 +33,7 @@ from src.report_language import (
 )
 from src.storage import DatabaseManager
 from src.services.run_diagnostics import build_run_diagnostic_summary
-from src.market_phase_summary import extract_market_phase_summary
+from src.market_phase_summary import extract_market_phase_summary, render_market_phase_summary
 from src.schemas.decision_action import build_action_fields
 from src.utils.sniper_points import find_sniper_points
 from src.utils.data_processing import (
@@ -258,19 +260,51 @@ class HistoryService:
             "turnover_rate": self._safe_float(turnover_rate),
         }
 
+    @staticmethod
+    def _display_stock_code(raw_code: Any) -> str:
+        code = str(raw_code or "").strip()
+        if not code:
+            return code
+        return resolve_index_stock_code(code) or code
+
+    def _display_market_phase_summary(self, stock_code: str, context_snapshot: Any) -> Any:
+        summary = extract_market_phase_summary(context_snapshot)
+        display_code = self._display_stock_code(stock_code)
+        if not display_code or display_code == str(stock_code or "").strip():
+            return summary
+
+        market = get_market_for_stock(display_code)
+        if market not in {"jp", "kr"}:
+            return summary
+
+        try:
+            phase_context = build_market_phase_context(market=market)
+            return render_market_phase_summary(phase_context.to_dict())
+        except Exception as exc:
+            logger.debug(
+                "[HistoryService] rebuild JP/KR market phase summary failed: code=%s err=%s",
+                display_code,
+                exc,
+            )
+            return summary
+
     def _record_to_list_item_dict(self, record) -> Dict[str, Any]:
         raw_result = parse_json_field(getattr(record, "raw_result", None))
         model_used = raw_result.get("model_used") if isinstance(raw_result, dict) else None
+        display_code = self._display_stock_code(record.code)
         market_fields = self._extract_history_market_fields(
             getattr(record, "context_snapshot", None)
         )
-        market_phase_summary = extract_market_phase_summary(getattr(record, "context_snapshot", None))
+        market_phase_summary = self._display_market_phase_summary(
+            record.code,
+            getattr(record, "context_snapshot", None),
+        )
         action_fields = self._decision_action_fields_for_record(record, raw_result)
 
         return {
             "id": record.id,
             "query_id": record.query_id,
-            "stock_code": record.code,
+            "stock_code": display_code,
             "stock_name": record.name,
             "report_type": record.report_type,
             "trend_prediction": record.trend_prediction,
@@ -521,10 +555,12 @@ class HistoryService:
             market_review_content = self._extract_market_review_content(record, raw_result)
 
         action_fields = self._decision_action_fields_for_record(record, raw_result)
+        display_code = self._display_stock_code(record.code)
+        market_phase_summary = self._display_market_phase_summary(record.code, context_snapshot)
         return {
             "id": record.id,
             "query_id": record.query_id,
-            "stock_code": record.code,
+            "stock_code": display_code,
             "stock_name": record.name,
             "report_type": record.report_type,
             "created_at": record.created_at.isoformat() if record.created_at else None,
@@ -543,6 +579,7 @@ class HistoryService:
             "news_content": market_review_content or record.news_content,
             "raw_result": raw_result,
             "context_snapshot": context_snapshot,
+            "market_phase_summary": market_phase_summary,
         }
 
     def _decision_action_fields_for_record(self, record, raw_result: Any) -> Dict[str, Any]:
