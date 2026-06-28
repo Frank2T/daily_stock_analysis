@@ -59,8 +59,10 @@ class SystemConfigApiTestCase(unittest.TestCase):
         )
         self._orig_dsa_desktop_mode = os.environ.get("DSA_DESKTOP_MODE")
         self._orig_database_path = os.environ.get("DATABASE_PATH")
+        self._orig_webui_read_only_mode = os.environ.get("WEBUI_READ_ONLY_MODE")
         os.environ["ENV_FILE"] = str(self.env_path)
         os.environ["DATABASE_PATH"] = str(Path(self.temp_dir.name) / "system_config_api_test.db")
+        os.environ.pop("WEBUI_READ_ONLY_MODE", None)
         Config.reset_instance()
 
         self.manager = ConfigManager(env_path=self.env_path)
@@ -80,6 +82,10 @@ class SystemConfigApiTestCase(unittest.TestCase):
             os.environ.pop("DATABASE_PATH", None)
         else:
             os.environ["DATABASE_PATH"] = self._orig_database_path
+        if self._orig_webui_read_only_mode is None:
+            os.environ.pop("WEBUI_READ_ONLY_MODE", None)
+        else:
+            os.environ["WEBUI_READ_ONLY_MODE"] = self._orig_webui_read_only_mode
         self.temp_dir.cleanup()
 
     @staticmethod
@@ -150,6 +156,14 @@ class SystemConfigApiTestCase(unittest.TestCase):
         self.assertIn("", min_severity_schema["validation"]["enum"])
         self.assertIn("warning", min_severity_schema["validation"]["enum"])
 
+    def test_get_config_rejects_webui_read_only_mode(self) -> None:
+        with patch.dict(os.environ, {"WEBUI_READ_ONLY_MODE": "true"}, clear=False):
+            with self.assertRaises(HTTPException) as context:
+                system_config.get_system_config(include_schema=True, service=self.service)
+
+        self.assertEqual(context.exception.status_code, 403)
+        self.assertEqual(context.exception.detail["error"], "webui_read_only")
+
     def test_get_setup_status_returns_readiness_payload(self) -> None:
         self.env_path.write_text(
             "\n".join(
@@ -164,7 +178,11 @@ class SystemConfigApiTestCase(unittest.TestCase):
             encoding="utf-8",
         )
 
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {}, clear=True), patch.object(
+            system_config,
+            "is_webui_read_only_mode",
+            return_value=False,
+        ):
             payload = system_config.get_setup_status(service=self.service).model_dump()
 
         self.assertTrue(payload["is_complete"])
@@ -208,6 +226,23 @@ class SystemConfigApiTestCase(unittest.TestCase):
 
         self.assertEqual(context.exception.status_code, 409)
         self.assertEqual(context.exception.detail["error"], "config_version_conflict")
+
+    def test_put_config_rejects_webui_read_only_mode(self) -> None:
+        current = system_config.get_system_config(include_schema=False, service=self.service).model_dump()
+
+        with patch.dict(os.environ, {"WEBUI_READ_ONLY_MODE": "true"}, clear=False):
+            with self.assertRaises(HTTPException) as context:
+                system_config.update_system_config(
+                    request=UpdateSystemConfigRequest(
+                        config_version=current["config_version"],
+                        items=[{"key": "STOCK_LIST", "value": "300750"}],
+                    ),
+                    service=self.service,
+                )
+
+        self.assertEqual(context.exception.status_code, 403)
+        self.assertEqual(context.exception.detail["error"], "webui_read_only")
+        self.assertEqual(self.manager.read_config_map()["STOCK_LIST"], "600519,000001")
 
     def test_put_config_preserves_comments_and_blank_lines(self) -> None:
         self.env_path.write_text(

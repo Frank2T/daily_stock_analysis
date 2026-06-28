@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 
 - [修复] 修复日股/韩股历史列表重建市场阶段摘要时将 non_trading 等结果阶段误传为 analysis_phase 导致列表查询失败的问题。
+- [新功能] 新增 `WEBUI_READ_ONLY_MODE` 只读试用模式，隐藏 Web 系统设置/告警入口，阻断系统配置、登录设置和推送通知相关接口，并在 Web 显示「试用版」标识。
 
 ## [3.23.0] - 2026-06-20
 

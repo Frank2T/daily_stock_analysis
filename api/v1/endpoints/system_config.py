@@ -35,6 +35,7 @@ from src.services.system_config_service import (
     ConfigValidationError,
     SystemConfigService,
 )
+from src.webui_access import is_webui_read_only_mode, webui_read_only_detail
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,13 @@ def _raise_env_backup_access_error(exc: EnvBackupAccessDenied) -> None:
     )
 
 
+def _ensure_system_config_access() -> None:
+    """Block system settings access when WebUI read-only mode is enabled."""
+    if not is_webui_read_only_mode():
+        return
+    raise HTTPException(status_code=403, detail=webui_read_only_detail())
+
+
 @router.get(
     "/config",
     response_model=SystemConfigResponse,
@@ -106,6 +114,7 @@ def get_system_config(
     service: SystemConfigService = Depends(get_system_config_service),
 ) -> SystemConfigResponse:
     """Load and return current system configuration."""
+    _ensure_system_config_access()
     try:
         payload = service.get_config(include_schema=include_schema)
         return SystemConfigResponse.model_validate(payload)
@@ -135,6 +144,7 @@ def get_setup_status(
     service: SystemConfigService = Depends(get_system_config_service),
 ) -> SetupStatusResponse:
     """Return first-run setup status without writing config or reloading runtime state."""
+    _ensure_system_config_access()
     try:
         payload = service.get_setup_status()
         return SetupStatusResponse.model_validate(payload)
@@ -166,6 +176,7 @@ def update_system_config(
     service: SystemConfigService = Depends(get_system_config_service),
 ) -> UpdateSystemConfigResponse:
     """Validate and persist system configuration updates."""
+    _ensure_system_config_access()
     try:
         payload = service.update(
             config_version=request.config_version,
@@ -220,6 +231,7 @@ def export_system_config(
     service: SystemConfigService = Depends(get_system_config_service),
 ) -> ExportSystemConfigResponse:
     """Export the active `.env` file for config backup."""
+    _ensure_system_config_access()
     try:
         _allow_env_backup_access(request)
     except EnvBackupAccessDenied as exc:
@@ -272,6 +284,7 @@ def import_system_config(
     service: SystemConfigService = Depends(get_system_config_service),
 ) -> UpdateSystemConfigResponse:
     """Import a `.env` backup into the active config."""
+    _ensure_system_config_access()
     try:
         _allow_env_backup_access(request_obj)
     except EnvBackupAccessDenied as exc:
@@ -337,6 +350,7 @@ def validate_system_config(
     service: SystemConfigService = Depends(get_system_config_service),
 ) -> ValidateSystemConfigResponse:
     """Run pre-save validation only."""
+    _ensure_system_config_access()
     try:
         payload = service.validate(items=[item.model_dump() for item in request.items])
         return ValidateSystemConfigResponse.model_validate(payload)
@@ -366,6 +380,7 @@ def test_llm_channel(
     service: SystemConfigService = Depends(get_system_config_service),
 ) -> TestLLMChannelResponse:
     """Validate and test one channel definition without writing `.env`."""
+    _ensure_system_config_access()
     try:
         payload = service.test_llm_channel(
             name=request.name,
@@ -412,6 +427,7 @@ def test_notification_channel(
     service: SystemConfigService = Depends(get_system_config_service),
 ) -> TestNotificationChannelResponse:
     """Validate and test one notification channel without writing `.env`."""
+    _ensure_system_config_access()
     try:
         payload = service.test_notification_channel(
             channel=request.channel,
@@ -456,6 +472,7 @@ def discover_llm_channel_models(
     service: SystemConfigService = Depends(get_system_config_service),
 ) -> DiscoverLLMChannelModelsResponse:
     """Discover models for one channel definition without writing `.env`."""
+    _ensure_system_config_access()
     try:
         payload = service.discover_llm_channel_models(
             name=request.name,
@@ -499,6 +516,7 @@ def get_system_config_schema(
     service: SystemConfigService = Depends(get_system_config_service),
 ) -> SystemConfigSchemaResponse:
     """Return schema metadata for system configuration fields."""
+    _ensure_system_config_access()
     try:
         payload = service.get_schema()
         return SystemConfigSchemaResponse.model_validate(payload)

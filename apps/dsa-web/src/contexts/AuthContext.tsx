@@ -10,6 +10,7 @@ type AuthContextValue = {
   passwordSet: boolean;
   passwordChangeable: boolean;
   setupState: 'enabled' | 'password_retained' | 'no_password';
+  webuiReadOnlyMode: boolean;
   isLoading: boolean;
   loadError: ParsedApiError | null;
   login: (password: string, passwordConfirm?: string) => Promise<{ success: boolean; error?: ParsedApiError }>;
@@ -44,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [passwordSet, setPasswordSet] = useState(false);
   const [passwordChangeable, setPasswordChangeable] = useState(false);
   const [setupState, setSetupState] = useState<'enabled' | 'password_retained' | 'no_password'>('no_password');
+  const [webuiReadOnlyMode, setWebuiReadOnlyMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<ParsedApiError | null>(null);
 
@@ -56,7 +58,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoggedIn(status.loggedIn);
       setPasswordSet(status.passwordSet ?? false);
       setPasswordChangeable(status.passwordChangeable ?? false);
-      setSetupState(status.setupState);
+      setSetupState(status.setupState ?? 'no_password');
+      setWebuiReadOnlyMode(status.webuiReadOnlyMode ?? false);
       if (status.authEnabled && !status.loggedIn) {
         useStockPoolStore.getState().resetDashboardState();
       }
@@ -67,6 +70,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setPasswordSet(false);
       setPasswordChangeable(false);
       setSetupState('no_password');
+      setWebuiReadOnlyMode(false);
       useStockPoolStore.getState().resetDashboardState();
     } finally {
       setIsLoading(false);
@@ -132,6 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         passwordSet,
         passwordChangeable,
         setupState,
+        webuiReadOnlyMode,
         isLoading,
         loadError,
         login,

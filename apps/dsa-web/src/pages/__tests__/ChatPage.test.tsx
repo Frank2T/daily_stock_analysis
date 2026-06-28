@@ -18,6 +18,7 @@ function createDeferred<T>() {
 }
 
 const {
+  authState,
   mockGetSkills,
   mockDeleteChatSession,
   mockSendChat,
@@ -29,6 +30,7 @@ const {
   mockDownloadSession,
   mockFormatSessionAsMarkdown,
 } = vi.hoisted(() => ({
+  authState: { webuiReadOnlyMode: false },
   mockGetSkills: vi.fn(),
   mockDeleteChatSession: vi.fn(),
   mockSendChat: vi.fn(),
@@ -89,6 +91,16 @@ vi.mock('../../api/systemConfig', () => ({
   },
 }));
 
+vi.mock('../../hooks', async () => {
+  const actual = await vi.importActual<typeof import('../../hooks')>('../../hooks');
+  return {
+    ...actual,
+    useAuth: () => ({
+      webuiReadOnlyMode: authState.webuiReadOnlyMode,
+    }),
+  };
+});
+
 vi.mock('../../utils/chatExport', () => ({
   downloadSession: mockDownloadSession,
   formatSessionAsMarkdown: mockFormatSessionAsMarkdown,
@@ -145,6 +157,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  authState.webuiReadOnlyMode = false;
   mockStoreState.messages = [];
   mockStoreState.loading = false;
   mockStoreState.progressSteps = [];
@@ -207,6 +220,21 @@ describe('ChatPage', () => {
     expect(screen.getByTestId('chat-message-scroll')).toBeInTheDocument();
     expect(mockLoadInitialSession).toHaveBeenCalled();
     expect(mockClearCompletionBadge).toHaveBeenCalled();
+  });
+
+  it('hides context compression settings in WebUI read-only mode', async () => {
+    authState.webuiReadOnlyMode = true;
+
+    render(
+      <MemoryRouter initialEntries={['/chat']}>
+        <ChatPage />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByTestId('chat-workspace')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /上下文压缩/ })).not.toBeInTheDocument();
+    expect(mockGetSystemConfig).not.toHaveBeenCalled();
+    expect(mockUpdateSystemConfig).not.toHaveBeenCalled();
   });
 
   it('loads and saves the global context compression setting from the chat input area', async () => {

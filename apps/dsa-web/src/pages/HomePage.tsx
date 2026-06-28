@@ -16,7 +16,7 @@ import { MarketReviewReportView } from '../components/report/MarketReviewReportV
 import { ReportSummary } from '../components/report/ReportSummary';
 import { RunFlowPanel } from '../components/run-flow';
 import { TaskPanel } from '../components/tasks';
-import { useDashboardLifecycle, useHomeDashboardState } from '../hooks';
+import { useAuth, useDashboardLifecycle, useHomeDashboardState } from '../hooks';
 import { useWatchlist } from '../hooks/useWatchlist';
 import { useUiLanguage } from '../contexts/UiLanguageContext';
 import type { SetupStatusResponse } from '../types/systemConfig';
@@ -45,6 +45,7 @@ const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { language: uiLanguage, t } = useUiLanguage();
+  const { webuiReadOnlyMode } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isSubmittingMarketReview, setIsSubmittingMarketReview] = useState(false);
   const [marketReviewNotice, setMarketReviewNotice] = useState<MarketReviewNotice>(null);
@@ -137,6 +138,11 @@ const HomePage: React.FC = () => {
   }, [t]);
 
   useEffect(() => {
+    if (webuiReadOnlyMode) {
+      setSetupStatus(null);
+      return;
+    }
+
     let active = true;
     systemConfigApi.getSetupStatus()
       .then((status) => {
@@ -153,7 +159,7 @@ const HomePage: React.FC = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [webuiReadOnlyMode]);
 
   useEffect(() => {
     let active = true;
@@ -312,7 +318,7 @@ const HomePage: React.FC = () => {
         break;
     }
   }, [closeStrategyMenu, focusStrategyItem, strategyOptions.length]);
-  const setupNeedsAction = setupStatus ? !setupStatus.isComplete : false;
+  const setupNeedsAction = !webuiReadOnlyMode && setupStatus ? !setupStatus.isComplete : false;
   const setupMissingLabels = useMemo(() => {
     if (!setupStatus) {
       return '';
@@ -383,9 +389,10 @@ const HomePage: React.FC = () => {
         originalQuery: query,
         selectionSource: selectionSource ?? 'manual',
         skills: selectedAnalysisSkills,
+        notify: webuiReadOnlyMode ? false : undefined,
       });
     },
-    [query, selectedAnalysisSkills, submitAnalysis],
+    [query, selectedAnalysisSkills, submitAnalysis, webuiReadOnlyMode],
   );
 
   useEffect(() => {
@@ -425,8 +432,9 @@ const HomePage: React.FC = () => {
       selectionSource: 'manual',
       forceRefresh: true,
       skills: selectedAnalysisSkills,
+      notify: webuiReadOnlyMode ? false : undefined,
     });
-  }, [selectedAnalysisSkills, selectedReport, submitAnalysis]);
+  }, [selectedAnalysisSkills, selectedReport, submitAnalysis, webuiReadOnlyMode]);
 
   const openTaskRunFlow = useCallback((task: TaskInfo) => {
     const stock = task.stockName || task.stockCode || task.taskId;
@@ -577,7 +585,7 @@ const HomePage: React.FC = () => {
     setMarketReviewPayload(null);
     scrollMarketReviewFeedbackIntoView();
     try {
-      const result = await analysisApi.triggerMarketReview({ sendNotification: notify });
+      const result = await analysisApi.triggerMarketReview({ sendNotification: webuiReadOnlyMode ? false : notify });
       setMarketReviewNotice({
         variant: 'success',
         title: t('home.marketReviewSubmitted'),
@@ -595,7 +603,7 @@ const HomePage: React.FC = () => {
     } finally {
       setIsSubmittingMarketReview(false);
     }
-  }, [notify, pollMarketReviewStatus, scrollMarketReviewFeedbackIntoView, t]);
+  }, [notify, pollMarketReviewStatus, scrollMarketReviewFeedbackIntoView, t, webuiReadOnlyMode]);
 
   const mergedStockBarItems = useMemo<StockBarItem[]>(() => {
     const latestMarketReview = marketReviewHistoryItems[0];
@@ -737,15 +745,17 @@ const HomePage: React.FC = () => {
               ) : null}
             </div>
             <div className="flex min-w-0 flex-shrink-0 items-center gap-2.5">
-              <label className="flex h-10 flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-subtle bg-surface/60 px-3 text-xs text-secondary-text select-none transition-colors hover:border-subtle-hover hover:text-foreground">
-                <input
-                  type="checkbox"
-                  checked={notify}
-                  onChange={(e) => setNotify(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-border accent-primary"
-                />
-                {t('home.notify')}
-              </label>
+              {!webuiReadOnlyMode ? (
+                <label className="flex h-10 flex-shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-subtle bg-surface/60 px-3 text-xs text-secondary-text select-none transition-colors hover:border-subtle-hover hover:text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={notify}
+                    onChange={(e) => setNotify(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-border accent-primary"
+                  />
+                  {t('home.notify')}
+                </label>
+              ) : null}
               <Button
                 type="button"
                 variant="secondary"

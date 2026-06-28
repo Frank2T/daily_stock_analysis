@@ -28,6 +28,7 @@ import { isNearBottom } from '../utils/chatScroll';
 import { getReportText } from '../utils/reportLanguage';
 import { extractStockCodesFromMessage } from '../utils/chatStockCode';
 import { findMatchingStockCode, includesStockCode, normalizeStockCode } from '../utils/stockCode';
+import { useAuth } from '../hooks';
 
 // Quick question examples shown on empty state
 const QUICK_QUESTIONS = [
@@ -151,6 +152,7 @@ const restoreActiveStockContextFromMessages = (messages: Message[]): ActiveStock
 
 const ChatPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { webuiReadOnlyMode } = useAuth();
   const [input, setInput] = useState('');
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
@@ -382,6 +384,12 @@ const ChatPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (webuiReadOnlyMode) {
+      setContextCompressionLoaded(false);
+      setContextCompressionError(null);
+      return;
+    }
+
     let active = true;
 
     void systemConfigApi.getConfig(false)
@@ -409,7 +417,7 @@ const ChatPage: React.FC = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [webuiReadOnlyMode]);
 
   const updateContextCompressionEnabled = useCallback(
     async (nextEnabled: boolean) => {
@@ -1250,34 +1258,36 @@ const ChatPage: React.FC = () => {
                   className="rounded-xl px-3 py-2 text-xs shadow-none"
                 />
               ) : null}
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/6 bg-surface/25 px-3 py-2">
-                <label
-                  className={cn(
-                    'inline-flex items-center gap-2 text-sm',
-                    contextCompressionLoaded && !contextCompressionSaving
-                      ? 'cursor-pointer text-foreground'
-                      : 'cursor-not-allowed text-muted-text',
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={contextCompressionEnabled}
-                    disabled={!contextCompressionLoaded || contextCompressionSaving}
-                    onChange={(event) => void updateContextCompressionEnabled(event.target.checked)}
-                    className="chat-skill-checkbox"
-                  />
-                  <span className="font-medium">上下文压缩</span>
-                  <span className="text-xs text-muted-text">节省长会话 token</span>
-                </label>
-                <span className="text-xs text-muted-text">
-                  {contextCompressionSaving
-                    ? '保存中...'
-                    : contextCompressionEnabled
-                      ? '已启用'
-                      : '未启用'}
-                </span>
-              </div>
-              {contextCompressionError ? (
+              {!webuiReadOnlyMode ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/6 bg-surface/25 px-3 py-2">
+                  <label
+                    className={cn(
+                      'inline-flex items-center gap-2 text-sm',
+                      contextCompressionLoaded && !contextCompressionSaving
+                        ? 'cursor-pointer text-foreground'
+                        : 'cursor-not-allowed text-muted-text',
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={contextCompressionEnabled}
+                      disabled={!contextCompressionLoaded || contextCompressionSaving}
+                      onChange={(event) => void updateContextCompressionEnabled(event.target.checked)}
+                      className="chat-skill-checkbox"
+                    />
+                    <span className="font-medium">上下文压缩</span>
+                    <span className="text-xs text-muted-text">节省长会话 token</span>
+                  </label>
+                  <span className="text-xs text-muted-text">
+                    {contextCompressionSaving
+                      ? '保存中...'
+                      : contextCompressionEnabled
+                        ? '已启用'
+                        : '未启用'}
+                  </span>
+                </div>
+              ) : null}
+              {!webuiReadOnlyMode && contextCompressionError ? (
                 <InlineAlert
                   variant="danger"
                   title="上下文压缩设置未保存"

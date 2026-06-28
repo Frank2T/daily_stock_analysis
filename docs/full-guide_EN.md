@@ -346,6 +346,8 @@ For the notification baseline, diagnostics, and deployment notes, see [Notificat
 | Variable | Description | Default |
 |--------|------|--------|
 | `STOCK_LIST` | Watchlist codes (comma-separated) | - |
+| `ADMIN_AUTH_ENABLED` | Enable Web password protection. Set to `true` before exposing WebUI outside a trusted local environment. | `false` |
+| `WEBUI_READ_ONLY_MODE` | WebUI read-only trial mode. When `true`, the Web settings and Alerts entries are hidden, and system-config read/save, import/export, config tests, auth settings, and password-change APIs are rejected. Analysis and market review can still be submitted, but Web disables push options and the backend rejects `notify=true` / `send_notification=true` plus alert rule create/update/enable/disable/delete/test actions. This does not replace login authentication; enable `ADMIN_AUTH_ENABLED=true` first and set the admin password before turning it on. | `false` |
 | `MAX_WORKERS` | Concurrent threads | `3` |
 | `MARKET_REVIEW_ENABLED` | Enable market review | `true` |
 | `DAILY_MARKET_CONTEXT_ENABLED` | Inject the daily market context into stock-analysis prompts and soften aggressive buy advice in high-risk/risk-off markets; enabled by default, and market review can still run when this is set to `false` | `true` |

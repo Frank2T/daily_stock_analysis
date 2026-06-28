@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SidebarNav } from '../SidebarNav';
 
 const mockLogout = vi.fn().mockResolvedValue(undefined);
@@ -10,10 +10,12 @@ const mockThemeToggle = vi.fn(({ collapsed }: { collapsed?: boolean }) => (
 ));
 
 const completionBadgeState = { value: true };
+const authState = { webuiReadOnlyMode: false };
 
 vi.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({
     authEnabled: true,
+    webuiReadOnlyMode: authState.webuiReadOnlyMode,
     logout: mockLogout,
   }),
 }));
@@ -36,6 +38,10 @@ vi.mock('../../theme/ThemeToggle', () => ({
 }));
 
 describe('SidebarNav', () => {
+  beforeEach(() => {
+    authState.webuiReadOnlyMode = false;
+  });
+
   it('hides the screening navigation item while AlphaSift is disabled', () => {
     mockGetAlphaSiftStatus.mockResolvedValueOnce({ enabled: false, available: false, installSpecIsDefault: false });
 
@@ -137,6 +143,20 @@ describe('SidebarNav', () => {
     const alertsLink = screen.getByRole('link', { name: '告警' });
     expect(alertsLink).toHaveAttribute('href', '/alerts');
     expect(alertsLink).toHaveClass('font-medium');
+  });
+
+  it('hides management navigation and marks the trial edition when WebUI read-only mode is enabled', () => {
+    authState.webuiReadOnlyMode = true;
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <SidebarNav />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole('link', { name: '设置' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '告警' })).not.toBeInTheDocument();
+    expect(screen.getByText('试用版')).toBeInTheDocument();
   });
 
   it('renders the AI signals navigation item and marks it active', () => {

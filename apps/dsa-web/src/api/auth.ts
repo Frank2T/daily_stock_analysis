@@ -6,6 +6,7 @@ export type AuthStatusResponse = {
   passwordSet?: boolean;
   passwordChangeable?: boolean;
   setupState: 'enabled' | 'password_retained' | 'no_password';
+  webuiReadOnlyMode?: boolean;
 };
 
 export const authApi = {

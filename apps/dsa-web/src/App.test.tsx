@@ -79,6 +79,7 @@ function makeAuthState(overrides: Partial<AuthState> = {}): AuthState {
     passwordSet: false,
     passwordChangeable: false,
     setupState: 'no_password',
+    webuiReadOnlyMode: false,
     isLoading: false,
     loadError: null,
     login: vi.fn().mockResolvedValue({ success: true }),
@@ -140,6 +141,32 @@ describe('App routing behavior', () => {
     expect(await screen.findByTestId('token-usage-page')).toBeInTheDocument();
     expect(setCurrentRoute).toHaveBeenCalledWith('/usage');
     expect(screen.queryByTestId('home-page')).not.toBeInTheDocument();
+  });
+
+  it('redirects settings visits to home when WebUI read-only mode is enabled', async () => {
+    vi.mocked(AuthContext.useAuth).mockReturnValue(makeAuthState({
+      webuiReadOnlyMode: true,
+    }));
+    window.history.pushState({}, '', '/settings');
+
+    render(<App />);
+
+    expect(await screen.findByTestId('home-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-page')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
+  });
+
+  it('redirects alerts visits to home when WebUI read-only mode is enabled', async () => {
+    vi.mocked(AuthContext.useAuth).mockReturnValue(makeAuthState({
+      webuiReadOnlyMode: true,
+    }));
+    window.history.pushState({}, '', '/alerts');
+
+    render(<App />);
+
+    expect(await screen.findByTestId('home-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('alerts-page')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
   });
 
   it('routes /decision-signals to the AI signals page after auth is ready', async () => {

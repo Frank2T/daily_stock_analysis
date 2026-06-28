@@ -25,10 +25,13 @@ from src.services.alert_service import (
     AlertServiceError,
     UnsupportedAlertTypeError,
 )
+from src.webui_access import is_webui_read_only_mode, webui_read_only_detail
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_READ_ONLY_ALERT_MESSAGE = "WebUI read-only mode is enabled; alert notifications are not available."
 
 
 def _bad_request(exc: Exception, *, error: str = "validation_error") -> HTTPException:
@@ -53,6 +56,14 @@ def _internal_error(message: str, exc: Exception) -> HTTPException:
     )
 
 
+def _ensure_alert_write_access() -> None:
+    if is_webui_read_only_mode():
+        raise HTTPException(
+            status_code=403,
+            detail=webui_read_only_detail(_READ_ONLY_ALERT_MESSAGE),
+        )
+
+
 @router.post(
     "/rules",
     response_model=AlertRuleItem,
@@ -60,6 +71,7 @@ def _internal_error(message: str, exc: Exception) -> HTTPException:
     summary="Create alert rule",
 )
 def create_rule(request: AlertRuleCreateRequest) -> AlertRuleItem:
+    _ensure_alert_write_access()
     service = AlertService()
     try:
         return AlertRuleItem(**service.create_rule(request.model_dump()))
@@ -126,6 +138,7 @@ def get_rule(rule_id: int) -> AlertRuleItem:
     summary="Update alert rule",
 )
 def update_rule(rule_id: int, request: AlertRuleUpdateRequest) -> AlertRuleItem:
+    _ensure_alert_write_access()
     service = AlertService()
     try:
         payload = request.model_dump(exclude_unset=True)
@@ -147,6 +160,7 @@ def update_rule(rule_id: int, request: AlertRuleUpdateRequest) -> AlertRuleItem:
     summary="Delete alert rule",
 )
 def delete_rule(rule_id: int) -> AlertDeleteResponse:
+    _ensure_alert_write_access()
     service = AlertService()
     try:
         if not service.delete_rule(rule_id):
@@ -165,6 +179,7 @@ def delete_rule(rule_id: int) -> AlertDeleteResponse:
     summary="Enable alert rule",
 )
 def enable_rule(rule_id: int) -> AlertRuleItem:
+    _ensure_alert_write_access()
     service = AlertService()
     try:
         return AlertRuleItem(**service.enable_rule(rule_id, True))
@@ -181,6 +196,7 @@ def enable_rule(rule_id: int) -> AlertRuleItem:
     summary="Disable alert rule",
 )
 def disable_rule(rule_id: int) -> AlertRuleItem:
+    _ensure_alert_write_access()
     service = AlertService()
     try:
         return AlertRuleItem(**service.enable_rule(rule_id, False))
@@ -197,6 +213,7 @@ def disable_rule(rule_id: int) -> AlertRuleItem:
     summary="Dry-run alert rule",
 )
 def test_rule(rule_id: int) -> AlertRuleTestResponse:
+    _ensure_alert_write_access()
     service = AlertService()
     try:
         return AlertRuleTestResponse(**service.test_rule(rule_id))

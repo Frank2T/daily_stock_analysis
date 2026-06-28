@@ -75,6 +75,7 @@ class AlertApiTestCase(unittest.TestCase):
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
         os.environ.pop("DATABASE_PATH", None)
+        os.environ.pop("WEBUI_READ_ONLY_MODE", None)
         self.temp_dir.cleanup()
         _reset_auth_globals()
 
@@ -140,6 +141,33 @@ class AlertApiTestCase(unittest.TestCase):
 
         missing_resp = self.client.get(f"/api/v1/alerts/rules/{rule_id}")
         self.assertEqual(missing_resp.status_code, 404)
+
+    def test_webui_read_only_mode_blocks_alert_notification_actions(self) -> None:
+        os.environ["WEBUI_READ_ONLY_MODE"] = "true"
+        body = {
+            "name": "Moutai breakout",
+            "target_scope": "single_symbol",
+            "target": "600519",
+            "alert_type": "price_cross",
+            "parameters": {"direction": "above", "price": 1800},
+            "severity": "warning",
+            "enabled": True,
+        }
+
+        responses = [
+            self.client.post("/api/v1/alerts/rules", json=body),
+            self.client.patch("/api/v1/alerts/rules/1", json={"enabled": False}),
+            self.client.delete("/api/v1/alerts/rules/1"),
+            self.client.post("/api/v1/alerts/rules/1/enable"),
+            self.client.post("/api/v1/alerts/rules/1/disable"),
+            self.client.post("/api/v1/alerts/rules/1/test"),
+        ]
+
+        for response in responses:
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.json()["error"], "webui_read_only")
+
+        self.assertEqual(self.client.get("/api/v1/alerts/rules").status_code, 200)
 
     def test_rule_response_includes_server_cooldown_active_flag(self) -> None:
         created = self._create_rule()

@@ -92,12 +92,14 @@ from src.utils.data_processing import (
     extract_board_detail_fields,
     extract_realtime_detail_fields,
 )
+from src.webui_access import is_webui_read_only_mode, webui_read_only_detail
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 _SUPPORTED_FREE_TEXT_RE = re.compile(r"^[A-Za-z0-9.*\-+\u3400-\u9fff\s]+$")
+_READ_ONLY_NOTIFICATION_MESSAGE = "WebUI read-only mode is enabled; push notifications are not available."
 
 
 def _get_task_trace_id(task: Any) -> Optional[str]:
@@ -175,6 +177,14 @@ def _run_market_review_background(
 
 def _invalid_analysis_input_error() -> HTTPException:
     return api_error(400, "validation_error", "请输入有效的股票代码或股票名称")
+
+
+def _ensure_notification_access(send_notification: bool) -> None:
+    if send_notification and is_webui_read_only_mode():
+        raise HTTPException(
+            status_code=403,
+            detail=webui_read_only_detail(_READ_ONLY_NOTIFICATION_MESSAGE),
+        )
 
 
 def _is_obviously_invalid_analysis_input(text: str) -> bool:
@@ -317,6 +327,8 @@ def _handle_async_analysis_batch(
     """
     Handle asynchronous analysis requests, including batch submission.
     """
+    notify = getattr(request, "notify", True)
+    _ensure_notification_access(notify)
     task_queue = get_task_queue()
     
     # Preserve metadata for single-stock requests. For batch requests,
@@ -328,7 +340,6 @@ def _handle_async_analysis_batch(
     stock_name = request.stock_name if is_single else None
     original_query = request.original_query if (is_single or preserve_batch_metadata) else None
     selection_source = request.selection_source if (is_single or preserve_batch_metadata) else None
-    notify = getattr(request, "notify", True)
     skills = getattr(request, "skills", None)
     analysis_phase = request.analysis_phase
     report_language = normalize_report_language(getattr(request, "report_language", None), default="")
@@ -423,6 +434,8 @@ def _handle_sync_analysis(
     from src.services.analysis_service import AnalysisService
     
     query_id = uuid.uuid4().hex
+    notify = getattr(request, "notify", True)
+    _ensure_notification_access(notify)
     
     try:
         service = AnalysisService()
@@ -431,7 +444,7 @@ def _handle_sync_analysis(
             report_type=request.report_type,
             force_refresh=request.force_refresh,
             query_id=query_id,
-            send_notification=getattr(request, "notify", True),
+            send_notification=notify,
             skills=getattr(request, "skills", None),
             analysis_phase=request.analysis_phase,
             report_language=getattr(request, "report_language", None),
@@ -495,6 +508,7 @@ def trigger_market_review(
 ) -> MarketReviewAccepted:
     """Trigger market review from Web/API without blocking the request."""
     request = request or MarketReviewRequest()
+    _ensure_notification_access(request.send_notification)
 
     runtime_config = _with_request_report_language(
         config,

@@ -8,6 +8,7 @@ import { cn } from '../../utils/cn';
 import { ThemeToggle } from '../theme/ThemeToggle';
 import { UiLanguageToggle } from '../i18n/UiLanguageToggle';
 import { useUiLanguage } from '../../contexts/UiLanguageContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 type ShellProps = {
   children?: React.ReactNode;
@@ -17,6 +18,7 @@ export const Shell: React.FC<ShellProps> = ({ children }) => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const collapsed = false;
   const { t } = useUiLanguage();
+  const { webuiReadOnlyMode } = useAuth();
 
   useEffect(() => {
     if (!mobileOpen) {
@@ -47,6 +49,11 @@ export const Shell: React.FC<ShellProps> = ({ children }) => {
           <Menu className="h-5 w-5" />
         </button>
         <div className="pointer-events-auto flex items-center gap-2">
+          {webuiReadOnlyMode ? (
+            <span className="rounded-full border border-[hsl(var(--primary)/0.28)] bg-card/85 px-2.5 py-1 text-xs font-medium leading-none text-[hsl(var(--primary))] shadow-soft-card backdrop-blur-md">
+              {t('layout.trialBadge')}
+            </span>
+          ) : null}
           <UiLanguageToggle />
           <ThemeToggle />
         </div>

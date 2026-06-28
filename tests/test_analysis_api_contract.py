@@ -150,6 +150,46 @@ class AnalysisApiContractTestCase(unittest.TestCase):
         self.assertEqual(kwargs["stock_name"], "大盘复盘")
         self.assertEqual(kwargs["message"], "大盘复盘任务已提交")
 
+    def test_trigger_market_review_rejects_notification_in_webui_read_only_mode(self) -> None:
+        if trigger_market_review is None or analysis_endpoint_module is None:
+            self.skipTest("analysis endpoint helpers unavailable in this environment")
+
+        request = SimpleNamespace(send_notification=True)
+
+        with patch.object(analysis_endpoint_module, "is_webui_read_only_mode", return_value=True), \
+             patch.object(analysis_endpoint_module, "_try_acquire_market_review_lock") as acquire_lock:
+            with self.assertRaises(Exception) as ctx:
+                trigger_market_review(
+                    request=request,
+                    config=SimpleNamespace(trading_day_check_enabled=False),
+                )
+
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertEqual(ctx.exception.detail["error"], "webui_read_only")
+        acquire_lock.assert_not_called()
+
+    def test_trigger_market_review_allows_notification_disabled_in_webui_read_only_mode(self) -> None:
+        if trigger_market_review is None or analysis_endpoint_module is None:
+            self.skipTest("analysis endpoint helpers unavailable in this environment")
+
+        task_queue = MagicMock()
+        task_queue.submit_background_task.return_value = SimpleNamespace(task_id="market-task-read-only")
+
+        with patch.object(analysis_endpoint_module, "is_webui_read_only_mode", return_value=True), \
+             patch.object(
+                 analysis_endpoint_module,
+                 "_try_acquire_market_review_lock",
+                 return_value=object(),
+             ), patch("api.v1.endpoints.analysis.get_task_queue", return_value=task_queue):
+            response = trigger_market_review(
+                request=SimpleNamespace(send_notification=False),
+                config=SimpleNamespace(trading_day_check_enabled=False),
+            )
+
+        self.assertEqual(response.status, "accepted")
+        self.assertFalse(response.send_notification)
+        task_queue.submit_background_task.assert_called_once()
+
     def test_trigger_market_review_accepts_request_level_report_language(self) -> None:
         if trigger_market_review is None or analysis_endpoint_module is None:
             self.skipTest("analysis endpoint helpers unavailable in this environment")
@@ -2261,6 +2301,68 @@ class AnalysisApiContractTestCase(unittest.TestCase):
             force_refresh=False,
             notify=True,
         )
+
+    def test_trigger_analysis_rejects_notification_in_webui_read_only_mode(self) -> None:
+        if trigger_analysis is None or analysis_endpoint_module is None:
+            self.skipTest("fastapi is not installed in this test environment")
+
+        with patch.object(analysis_endpoint_module, "is_webui_read_only_mode", return_value=True), \
+             patch("api.v1.endpoints.analysis.get_task_queue") as queue_mock:
+            with self.assertRaises(Exception) as ctx:
+                trigger_analysis(
+                    request=SimpleNamespace(
+                        stock_code="600519",
+                        stock_codes=None,
+                        stock_name=None,
+                        original_query=None,
+                        selection_source="manual",
+                        report_type="detailed",
+                        force_refresh=False,
+                        async_mode=True,
+                        notify=True,
+                        analysis_phase="auto",
+                    ),
+                    config=SimpleNamespace(),
+                )
+
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertEqual(ctx.exception.detail["error"], "webui_read_only")
+        queue_mock.assert_not_called()
+
+    def test_trigger_analysis_allows_notification_disabled_in_webui_read_only_mode(self) -> None:
+        if trigger_analysis is None or analysis_endpoint_module is None:
+            self.skipTest("fastapi is not installed in this test environment")
+
+        task = SimpleNamespace(
+            task_id="task-read-only-no-notify",
+            trace_id="trace-read-only-no-notify",
+            stock_code="600519",
+            analysis_phase="auto",
+        )
+        queue = MagicMock()
+        queue.submit_tasks_batch.return_value = ([task], [])
+
+        with patch.object(analysis_endpoint_module, "is_webui_read_only_mode", return_value=True), \
+             patch("api.v1.endpoints.analysis.get_task_queue", return_value=queue):
+            response = trigger_analysis(
+                request=SimpleNamespace(
+                    stock_code="600519",
+                    stock_codes=None,
+                    stock_name=None,
+                    original_query=None,
+                    selection_source="manual",
+                    report_type="detailed",
+                    force_refresh=False,
+                    async_mode=True,
+                    notify=False,
+                    analysis_phase="auto",
+                ),
+                config=SimpleNamespace(),
+            )
+
+        self.assertEqual(response.status_code, 202)
+        queue.submit_tasks_batch.assert_called_once()
+        self.assertFalse(queue.submit_tasks_batch.call_args.kwargs["notify"])
 
     def test_trigger_analysis_resolves_bare_code_from_stock_index_before_default_market(self) -> None:
         if trigger_analysis is None:

@@ -13,6 +13,7 @@ import { UI_LANGUAGE_STORAGE_KEY } from '../../utils/uiLanguage';
 import HomePage from '../HomePage';
 
 const navigateMock = vi.fn();
+const authState = vi.hoisted(() => ({ webuiReadOnlyMode: false }));
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
@@ -61,6 +62,16 @@ vi.mock('../../api/agent', () => ({
     getSkills: vi.fn(),
   },
 }));
+
+vi.mock('../../hooks', async () => {
+  const actual = await vi.importActual<typeof import('../../hooks')>('../../hooks');
+  return {
+    ...actual,
+    useAuth: () => ({
+      webuiReadOnlyMode: authState.webuiReadOnlyMode,
+    }),
+  };
+});
 
 vi.mock('../../hooks/useTaskStream', () => ({
   useTaskStream: vi.fn(),
@@ -180,6 +191,7 @@ const runFlowSnapshot: RunFlowSnapshot = {
 describe('HomePage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.webuiReadOnlyMode = false;
     navigateMock.mockReset();
     window.localStorage.clear();
     useStockPoolStore.getState().resetDashboardState();
@@ -242,6 +254,62 @@ describe('HomePage', () => {
       }),
     ).toBeInTheDocument();
     expect(historyApi.getMarkdown).not.toHaveBeenCalled();
+  });
+
+  it('does not load setup status when WebUI read-only mode is enabled', async () => {
+    authState.webuiReadOnlyMode = true;
+    vi.mocked(historyApi.getList).mockResolvedValue({
+      total: 0,
+      page: 1,
+      limit: 20,
+      items: [],
+    });
+
+    render(
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('home-dashboard')).toBeInTheDocument();
+    expect(systemConfigApi.getSetupStatus).not.toHaveBeenCalled();
+  });
+
+  it('hides notification controls and submits without notifications in WebUI read-only mode', async () => {
+    authState.webuiReadOnlyMode = true;
+    vi.mocked(historyApi.getList).mockResolvedValue({
+      total: 0,
+      page: 1,
+      limit: 20,
+      items: [],
+    });
+    vi.mocked(analysisApi.analyzeAsync).mockResolvedValue({
+      taskId: 'task-1',
+      status: 'pending',
+    });
+    vi.mocked(analysisApi.triggerMarketReview).mockResolvedValue({
+      status: 'accepted',
+      sendNotification: false,
+      message: '大盘复盘任务已提交',
+    });
+
+    render(
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>,
+    );
+
+    const input = await screen.findByPlaceholderText('输入股票代码或名称，如 600519、贵州茅台、AAPL');
+    expect(screen.queryByText('推送通知')).not.toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: '600519' } });
+    fireEvent.click(screen.getByRole('button', { name: '分析' }));
+    fireEvent.click(screen.getByRole('button', { name: '大盘复盘' }));
+
+    await waitFor(() => {
+      expect(analysisApi.analyzeAsync).toHaveBeenCalledWith(expect.objectContaining({ notify: false }));
+      expect(analysisApi.triggerMarketReview).toHaveBeenCalledWith({ sendNotification: false });
+    });
   });
 
   it('loads markdown only after opening the full report drawer', async () => {

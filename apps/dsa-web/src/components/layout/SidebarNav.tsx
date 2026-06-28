@@ -40,7 +40,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export const SidebarNav: React.FC<SidebarNavProps> = ({ collapsed = false, onNavigate, variant = 'default' }) => {
-  const { authEnabled, logout } = useAuth();
+  const { authEnabled, webuiReadOnlyMode, logout } = useAuth();
   const { t } = useUiLanguage();
   const completionBadge = useAgentChatStore((state) => state.completionBadge);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -73,7 +73,15 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ collapsed = false, onNav
     };
   }, []);
 
-  const navItems = showAlphaSiftNav ? NAV_ITEMS : NAV_ITEMS.filter((item) => item.key !== 'screening');
+  const navItems = NAV_ITEMS.filter((item) => {
+    if (!showAlphaSiftNav && item.key === 'screening') {
+      return false;
+    }
+    if (webuiReadOnlyMode && (item.key === 'settings' || item.key === 'alerts')) {
+      return false;
+    }
+    return true;
+  });
   const isRail = variant === 'rail';
   const itemBaseClass = cn(
     'group relative flex h-[var(--nav-item-height)] w-full items-center overflow-hidden rounded-2xl border border-transparent text-sm leading-none text-secondary-text transition-all',
@@ -109,7 +117,14 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ collapsed = false, onNav
           <BarChart3 className={cn(isRail ? 'h-[19px] w-[19px]' : 'h-5 w-5')} />
         </div>
         {!collapsed ? (
-          <p className={cn('min-w-0 truncate font-semibold text-foreground', isRail ? 'text-[0.95rem] leading-none' : 'text-sm')}>DSA</p>
+          <div className="flex min-w-0 flex-col gap-1">
+            <p className={cn('min-w-0 truncate font-semibold text-foreground', isRail ? 'text-[0.95rem] leading-none' : 'text-sm')}>DSA</p>
+            {webuiReadOnlyMode ? (
+              <span className="w-fit rounded-full border border-[hsl(var(--primary)/0.28)] bg-[hsl(var(--primary)/0.10)] px-2 py-0.5 text-[0.65rem] font-medium leading-none text-[hsl(var(--primary))]">
+                {t('layout.trialBadge')}
+              </span>
+            ) : null}
+          </div>
         ) : null}
       </div>
 

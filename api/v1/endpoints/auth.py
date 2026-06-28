@@ -33,6 +33,7 @@ from src.auth import (
 )
 from src.config import Config, setup_env
 from src.core.config_manager import ConfigManager
+from src.webui_access import is_webui_read_only_mode, webui_read_only_detail
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +180,7 @@ def _get_auth_status_dict(request: Request | None = None) -> dict:
         "passwordSet": _password_set_for_response(auth_enabled),
         "passwordChangeable": is_password_changeable() if auth_enabled else False,
         "setupState": setup_state,
+        "webuiReadOnlyMode": is_webui_read_only_mode(),
     }
 
 
@@ -203,6 +205,9 @@ async def auth_status(request: Request):
 )
 async def auth_update_settings(request: Request, body: AuthSettingsRequest):
     """Manage auth enablement from the settings page."""
+    if is_webui_read_only_mode():
+        return JSONResponse(status_code=403, content=webui_read_only_detail())
+
     target_enabled = body.auth_enabled
     current_enabled = is_auth_enabled()
     stored_password_exists = has_stored_password()
@@ -387,6 +392,9 @@ async def auth_login(request: Request, body: LoginRequest):
     password_set = is_password_set()
 
     if not password_set:
+        if is_webui_read_only_mode():
+            return JSONResponse(status_code=403, content=webui_read_only_detail())
+
         # First-time setup: require passwordConfirm
         confirm = (body.password_confirm or "").strip()
         if password != confirm:
@@ -430,6 +438,9 @@ async def auth_login(request: Request, body: LoginRequest):
 )
 async def auth_change_password(body: ChangePasswordRequest):
     """Change password. Requires login."""
+    if is_webui_read_only_mode():
+        return JSONResponse(status_code=403, content=webui_read_only_detail())
+
     if not is_password_changeable():
         return JSONResponse(
             status_code=400,

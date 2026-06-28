@@ -46,8 +46,10 @@ class AuthApiTestCase(unittest.TestCase):
             "STOCK_LIST=600519\nGEMINI_API_KEY=test\nADMIN_AUTH_ENABLED=true\n",
             encoding="utf-8",
         )
+        self._orig_webui_read_only_mode = os.environ.get("WEBUI_READ_ONLY_MODE")
         os.environ["ENV_FILE"] = str(self.env_path)
         os.environ["DATABASE_PATH"] = str(self.data_dir / "test.db")
+        os.environ.pop("WEBUI_READ_ONLY_MODE", None)
         Config.reset_instance()
 
         self.auth_patcher = patch.object(auth, "_is_auth_enabled_from_env", return_value=True)
@@ -61,6 +63,10 @@ class AuthApiTestCase(unittest.TestCase):
         Config.reset_instance()
         os.environ.pop("ENV_FILE", None)
         os.environ.pop("DATABASE_PATH", None)
+        if self._orig_webui_read_only_mode is None:
+            os.environ.pop("WEBUI_READ_ONLY_MODE", None)
+        else:
+            os.environ["WEBUI_READ_ONLY_MODE"] = self._orig_webui_read_only_mode
         self.temp_dir.cleanup()
 
     def _read_auth_enabled_from_env(self) -> bool:
@@ -81,6 +87,13 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertTrue(data["authEnabled"])
         self.assertFalse(data["passwordSet"])
         self.assertFalse(data["loggedIn"])
+        self.assertFalse(data["webuiReadOnlyMode"])
+
+    def test_auth_status_reports_webui_read_only_mode(self) -> None:
+        with patch.dict(os.environ, {"WEBUI_READ_ONLY_MODE": "true"}, clear=False):
+            data = asyncio.run(auth_endpoint.auth_status(self._build_request()))
+
+        self.assertTrue(data["webuiReadOnlyMode"])
 
     def test_login_first_time_set_initial_password(self) -> None:
         response = asyncio.run(
@@ -102,6 +115,19 @@ class AuthApiTestCase(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn(b'"error":"password_mismatch"', response.body)
+
+    def test_login_first_time_rejected_in_webui_read_only_mode(self) -> None:
+        with patch.dict(os.environ, {"WEBUI_READ_ONLY_MODE": "true"}, clear=False):
+            response = asyncio.run(
+                auth_endpoint.auth_login(
+                    self._build_request(),
+                    auth_endpoint.LoginRequest(password="newpass123", passwordConfirm="newpass123"),
+                )
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(b'"error":"webui_read_only"', response.body)
+        self.assertFalse((self.data_dir / ".admin_password_hash").exists())
 
     def test_login_after_set_normal_login(self) -> None:
         first_response = asyncio.run(
@@ -360,6 +386,21 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn(b'"error":"password_required"', response.body)
 
+    def test_auth_settings_rejected_in_webui_read_only_mode(self) -> None:
+        original_env = self.env_path.read_text(encoding="utf-8")
+
+        with patch.dict(os.environ, {"WEBUI_READ_ONLY_MODE": "true"}, clear=False):
+            response = asyncio.run(
+                auth_endpoint.auth_update_settings(
+                    self._build_request(),
+                    auth_endpoint.AuthSettingsRequest(authEnabled=False, currentPassword="passwd6"),
+                )
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(b'"error":"webui_read_only"', response.body)
+        self.assertEqual(self.env_path.read_text(encoding="utf-8"), original_env)
+
     def test_auth_settings_rechecks_password_before_initial_write(self) -> None:
         self.env_path.write_text(
             "STOCK_LIST=600519\nGEMINI_API_KEY=test\nADMIN_AUTH_ENABLED=false\n",
@@ -425,6 +466,24 @@ class AuthApiTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn(b'"error":"current_required"', response.body)
         self.assertIn("ADMIN_AUTH_ENABLED=true", self.env_path.read_text(encoding="utf-8"))
+
+    def test_change_password_rejected_in_webui_read_only_mode(self) -> None:
+        auth.set_initial_password("passwd6")
+
+        with patch.dict(os.environ, {"WEBUI_READ_ONLY_MODE": "true"}, clear=False):
+            response = asyncio.run(
+                auth_endpoint.auth_change_password(
+                    auth_endpoint.ChangePasswordRequest(
+                        currentPassword="passwd6",
+                        newPassword="newpass123",
+                        newPasswordConfirm="newpass123",
+                    )
+                )
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn(b'"error":"webui_read_only"', response.body)
+        self.assertTrue(auth.verify_stored_password("passwd6"))
 
     def test_auth_settings_toggle_fails_when_secret_rotation_fails(self) -> None:
         with patch.object(auth, "_is_auth_enabled_from_env", side_effect=self._read_auth_enabled_from_env):

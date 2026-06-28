@@ -337,6 +337,17 @@ ADMIN_AUTH_ENABLED=true
 
 > 如果忘了密码，可以在服务器上执行：`python -m src.auth reset_password`
 
+### 给别人试用但不开放配置
+
+如果只是给他人体验 Web 界面，不希望对方查看或修改系统配置，请先开启登录认证并设置好管理员密码，然后再启用只读试用模式：
+
+```env
+ADMIN_AUTH_ENABLED=true
+WEBUI_READ_ONLY_MODE=true
+```
+
+该模式会隐藏 Web 端「系统设置」和「告警」入口，并在后端拒绝系统配置读取/保存、导入导出、配置测试、登录设置、修改密码、告警规则写入/启停/删除/测试，以及 `notify=true` / `send_notification=true` 的分析和大盘复盘请求。Web 首页会显示「试用版」标识并关闭推送通知选项。它不会替代登录认证，也不会自动禁止历史记录、自选股、组合等非通知业务功能；如需完全冻结所有写操作，建议单独部署一套演示环境并使用可随时轮换的测试密钥。
+
 ---
 
 遇到其他问题？欢迎 [提交 Issue](https://github.com/ZhuLinsen/daily_stock_analysis/issues)。

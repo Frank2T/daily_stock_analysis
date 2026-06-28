@@ -26,7 +26,7 @@ const StockScreeningPage = lazy(() => import('./pages/StockScreeningPage'));
 
 const AppContent: React.FC = () => {
   const location = useLocation();
-  const { authEnabled, loggedIn, isLoading, loadError, refreshStatus } = useAuth();
+  const { authEnabled, loggedIn, webuiReadOnlyMode, isLoading, loadError, refreshStatus } = useAuth();
   const { t } = useUiLanguage();
 
   useEffect(() => {
@@ -70,6 +70,10 @@ const AppContent: React.FC = () => {
     return <Navigate to="/" replace />;
   }
 
+  if (webuiReadOnlyMode && (location.pathname === '/settings' || location.pathname === '/alerts')) {
+    return <Navigate to="/" replace />;
+  }
+
   return (
     <Routes>
       <Route
@@ -85,9 +89,9 @@ const AppContent: React.FC = () => {
         <Route path="/decision-signals" element={<DecisionSignalsPage />} />
         <Route path="/screening" element={<StockScreeningPage />} />
         <Route path="/backtest" element={<BacktestPage />} />
-        <Route path="/alerts" element={<AlertsPage />} />
+        {!webuiReadOnlyMode ? <Route path="/alerts" element={<AlertsPage />} /> : null}
         <Route path="/usage" element={<TokenUsagePage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        {!webuiReadOnlyMode ? <Route path="/settings" element={<SettingsPage />} /> : null}
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
