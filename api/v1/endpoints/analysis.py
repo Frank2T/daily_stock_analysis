@@ -1352,10 +1352,10 @@ def _build_analysis_report(
         explicit_action=raw_result_data.get("action") or details_data.get("action") or summary_data.get("action"),
         report_type=meta.report_type,
         report_language=report_language,
-        sentiment_score=(
-            summary_data.get("sentiment_score")
-            or raw_result_data.get("sentiment_score")
-            or details_data.get("sentiment_score")
+        sentiment_score=_first_non_empty_report_value(
+            summary_data.get("sentiment_score"),
+            raw_result_data.get("sentiment_score"),
+            details_data.get("sentiment_score"),
         ),
         guardrail_reason=_extract_guardrail_reason(raw_result_data),
         align_with_score=True,
