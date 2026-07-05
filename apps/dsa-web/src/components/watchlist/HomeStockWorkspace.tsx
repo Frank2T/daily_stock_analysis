@@ -52,6 +52,7 @@ interface HomeStockWorkspaceProps {
   isBatchAnalyzing: boolean;
   batchStatus: BatchStatus | null;
   todayItems: StockBarItem[];
+  isLoadingTodayItems: boolean;
   watchlistAnalyzedTodayCount: number;
   historyItems: StockBarItem[];
   isLoadingHistory: boolean;
@@ -205,6 +206,7 @@ export const HomeStockWorkspace: React.FC<HomeStockWorkspaceProps> = ({
   isBatchAnalyzing,
   batchStatus,
   todayItems,
+  isLoadingTodayItems,
   watchlistAnalyzedTodayCount,
   historyItems,
   isLoadingHistory,
@@ -412,6 +414,8 @@ export const HomeStockWorkspace: React.FC<HomeStockWorkspaceProps> = ({
               ))}
             </div>
           )
+        ) : isLoadingTodayItems ? (
+          <DashboardStateBlock loading compact title={t('watchlist.loading')} />
         ) : todayItems.length === 0 ? (
           <DashboardStateBlock
             compact

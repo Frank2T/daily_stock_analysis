@@ -189,6 +189,7 @@ describe('HomePage', () => {
       processing: 0,
       tasks: [],
     });
+    vi.mocked(systemConfigApi.getWatchlist).mockResolvedValue([]);
     vi.mocked(agentApi.getSkills).mockResolvedValue({ skills: [], default_skill_id: '' });
     vi.mocked(historyApi.getDiagnostics).mockResolvedValue({
       status: 'unknown',
@@ -590,6 +591,97 @@ describe('HomePage', () => {
       await aaplHistoryPromise;
     });
     expect(await screen.findByLabelText('今日已分析')).toBeInTheDocument();
+  });
+
+  it('loads the Today ranking from paginated history instead of the capped stock bar', async () => {
+    const todayInShanghai = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+    vi.mocked(historyApi.getStockBarList).mockResolvedValue({
+      total: 1,
+      items: [{
+        id: 11,
+        stockCode: '600519',
+        stockName: '贵州茅台',
+        reportType: 'detailed',
+        sentimentScore: 72,
+        operationAdvice: '观察',
+        analysisCount: 2,
+        lastAnalysisTime: `${todayInShanghai}T10:00:00`,
+      }],
+    });
+    vi.mocked(historyApi.getList).mockImplementation((params: {
+      startDate?: string;
+      endDate?: string;
+      reportType?: string;
+      page?: number;
+      limit?: number;
+    } = {}) => {
+      if (params.startDate === todayInShanghai && params.endDate === todayInShanghai && params.limit === 100) {
+        if (params.page === 1) {
+          return Promise.resolve({
+            total: 101,
+            page: 1,
+            limit: 100,
+            items: Array.from({ length: 100 }, (_, index) => ({
+              id: 31 + index,
+              queryId: `q-today-${index}`,
+              stockCode: index === 0 ? 'AAPL' : `T${index.toString().padStart(3, '0')}`,
+              stockName: index === 0 ? 'Apple' : `Stock ${index}`,
+              reportType: 'detailed' as const,
+              sentimentScore: index === 0 ? 61 : 50,
+              operationAdvice: '观察',
+              createdAt: `${todayInShanghai}T09:${String(index % 60).padStart(2, '0')}:00`,
+            })),
+          });
+        }
+
+        return Promise.resolve({
+          total: 101,
+          page: 2,
+          limit: 100,
+          items: [{
+            id: 32,
+            queryId: 'q-nvda-today',
+            stockCode: 'NVDA',
+            stockName: 'NVIDIA',
+            reportType: 'detailed' as const,
+            sentimentScore: 93,
+            operationAdvice: '买入',
+            createdAt: `${todayInShanghai}T11:00:00`,
+          }],
+        });
+      }
+
+      return Promise.resolve({
+        total: 0,
+        page: params.page ?? 1,
+        limit: params.limit ?? 20,
+        items: [],
+      });
+    });
+
+    render(
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: '今日' }));
+
+    await waitFor(() => {
+      expect(historyApi.getList).toHaveBeenCalledWith({
+        startDate: todayInShanghai,
+        endDate: todayInShanghai,
+        page: 2,
+        limit: 100,
+      });
+    });
+
+    const highScoreButton = await screen.findByRole('button', { name: /NVIDIA/ });
+    const lowerScoreButton = screen.getByRole('button', { name: /Apple/ });
+    expect(highScoreButton).toBeInTheDocument();
+    expect(
+      highScoreButton.compareDocumentPosition(lowerScoreButton) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it('removes the MARKET stock bar item after deleting market review history', async () => {

@@ -57,6 +57,7 @@ type StockAnalysisNavigationState = {
 
 const DUPLICATE_BANNER_AUTO_DISMISS_MS = 5000;
 const BATCH_ANALYSIS_CHUNK_SIZE = 50;
+const TODAY_ANALYSIS_PAGE_SIZE = 100;
 const SERVER_LOCAL_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
 
 type BatchAnalyzeStatus = {
@@ -78,6 +79,16 @@ function getShanghaiDateKey(value?: string | null): string {
   const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return '';
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(date);
+}
+
+function getShanghaiTimeValue(value?: string | null): number {
+  if (!value) return 0;
+  const trimmed = value.trim();
+  const normalized = SERVER_LOCAL_DATE_TIME_PATTERN.test(trimmed)
+    ? `${trimmed.replace(' ', 'T')}+08:00`
+    : trimmed;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }
 
 function getStockCodeKey(code?: string | null): string {
@@ -120,6 +131,41 @@ function toStockBarItemFromHistoryItem(item: HistoryItem): StockBarItem {
   };
 }
 
+async function getTodayAnalysisItems(dateKey: string): Promise<StockBarItem[]> {
+  const items: StockBarItem[] = [];
+  let loadedRecordCount = 0;
+  let page = 1;
+
+  while (true) {
+    const response = await historyApi.getList({
+      startDate: dateKey,
+      endDate: dateKey,
+      page,
+      limit: TODAY_ANALYSIS_PAGE_SIZE,
+    });
+
+    loadedRecordCount += response.items.length;
+    for (const item of response.items) {
+      if (item.stockCode === 'MARKET' || item.reportType === 'market_review') {
+        continue;
+      }
+      items.push(toStockBarItemFromHistoryItem(item));
+    }
+
+    if (
+      response.items.length === 0
+      || response.items.length < TODAY_ANALYSIS_PAGE_SIZE
+      || loadedRecordCount >= response.total
+    ) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return items;
+}
+
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -143,6 +189,8 @@ const HomePage: React.FC = () => {
     signature: '',
     settledKeys: new Set(),
   });
+  const [todayHistoryItems, setTodayHistoryItems] = useState<StockBarItem[]>([]);
+  const [isLoadingTodayAnalysisItems, setIsLoadingTodayAnalysisItems] = useState(false);
   const duplicateBannerTimer = useRef<number | null>(null);
   const marketReviewPollTimer = useRef<number | null>(null);
   const dashboardScrollRef = useRef<HTMLElement | null>(null);
@@ -809,6 +857,35 @@ const HomePage: React.FC = () => {
   }, [notify, pollMarketReviewStatus, scrollMarketReviewFeedbackIntoView, t]);
 
   const todayDateKey = getTodayInShanghai();
+  useEffect(() => {
+    if (sidebarWorkspaceTab !== 'today') {
+      return undefined;
+    }
+
+    let active = true;
+    setIsLoadingTodayAnalysisItems(true);
+    void getTodayAnalysisItems(todayDateKey)
+      .then((items) => {
+        if (active) {
+          setTodayHistoryItems(items);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setTodayHistoryItems([]);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoadingTodayAnalysisItems(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [sidebarWorkspaceTab, todayDateKey]);
+
   const activeTaskByCode = useMemo(() => {
     const tasksByCode = new Map<string, TaskInfo>();
     for (const task of activeTasks) {
@@ -878,36 +955,39 @@ const HomePage: React.FC = () => {
     [watchlistHistoryItemsByCode],
   );
   const todayAnalysisItems = useMemo(() => {
-    const itemsByCode = new Map<string, StockBarItem>();
+    const itemsById = new Map<number, StockBarItem>();
+    const addItem = (item: StockBarItem) => {
+      if (item.stockCode === 'MARKET' || item.reportType === 'market_review') {
+        return;
+      }
+      if (getShanghaiDateKey(item.lastAnalysisTime) !== todayDateKey) {
+        return;
+      }
+      itemsById.set(item.id, item);
+    };
+
+    for (const item of todayHistoryItems) {
+      addItem(item);
+    }
     for (const item of stockBarItems) {
-      if (item.stockCode === 'MARKET') {
-        continue;
-      }
-      const key = getStockCodeKey(item.stockCode);
-      if (key) {
-        itemsByCode.set(key, item);
-      }
+      addItem(item);
     }
     for (const item of watchlistHistoryItems) {
-      const key = getStockCodeKey(item.stockCode);
-      if (key) {
-        itemsByCode.set(key, item);
-      }
+      addItem(item);
     }
 
-    return Array.from(itemsByCode.values())
-      .filter((item) => getShanghaiDateKey(item.lastAnalysisTime) === todayDateKey)
+    return Array.from(itemsById.values())
       .sort((left, right) => {
         const leftScore = typeof left.sentimentScore === 'number' ? left.sentimentScore : -1;
         const rightScore = typeof right.sentimentScore === 'number' ? right.sentimentScore : -1;
         if (rightScore !== leftScore) {
           return rightScore - leftScore;
         }
-        const leftTime = left.lastAnalysisTime ? Date.parse(left.lastAnalysisTime) : 0;
-        const rightTime = right.lastAnalysisTime ? Date.parse(right.lastAnalysisTime) : 0;
+        const leftTime = getShanghaiTimeValue(left.lastAnalysisTime);
+        const rightTime = getShanghaiTimeValue(right.lastAnalysisTime);
         return rightTime - leftTime;
       });
-  }, [stockBarItems, todayDateKey, watchlistHistoryItems]);
+  }, [stockBarItems, todayDateKey, todayHistoryItems, watchlistHistoryItems]);
 
   const handleAnalyzeWatchlist = useCallback(async (mode: WatchlistAnalyzeMode) => {
     if (mode === 'pending' && watchlistTodayStatusLoading) {
@@ -1035,6 +1115,7 @@ const HomePage: React.FC = () => {
           isBatchAnalyzing={isBatchAnalyzingWatchlist}
           batchStatus={batchAnalyzeStatus}
           todayItems={todayAnalysisItems}
+          isLoadingTodayItems={isLoadingTodayAnalysisItems}
           watchlistAnalyzedTodayCount={watchlistAnalyzedTodayCount}
           historyItems={mergedStockBarItems}
           isLoadingHistory={isLoadingStockBar}
@@ -1056,6 +1137,7 @@ const HomePage: React.FC = () => {
       isBatchAnalyzingWatchlist,
       isDeletingStock,
       isLoadingStockBar,
+      isLoadingTodayAnalysisItems,
       mergedStockBarItems,
       openTaskRunFlow,
       selectedReport?.meta.id,
