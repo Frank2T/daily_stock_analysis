@@ -5,6 +5,8 @@ import pytest
 
 from src.schemas.decision_action import (
     build_action_fields,
+    display_action_fields,
+    display_action_fields_for_result,
     display_decision_type_for_result,
     display_operation_advice,
     localize_action_label,
@@ -424,9 +426,40 @@ def test_display_decision_type_for_result_falls_back_to_decision_type(
         action_label = None
         dashboard = None
 
-    Result.decision_type = decision_type  # type: ignore[attr-defined]
+    setattr(Result, "decision_type", decision_type)
 
     assert display_decision_type_for_result(Result()) == expected
+
+
+def test_display_action_fields_falls_back_to_action_label_when_explicit_action_is_blank() -> None:
+    assert display_action_fields(
+        operation_advice="持有",
+        explicit_action="",
+        action_label="回避",
+        sentiment_score=72,
+        report_language="zh",
+    ) == {
+        "action": "avoid",
+        "action_label": "回避",
+    }
+
+
+def test_display_action_fields_for_result_falls_back_when_result_action_is_blank() -> None:
+    class Result:
+        operation_advice = "持有"
+        action = ""
+        action_label = "回避"
+        decision_type = "hold"
+        report_language = "zh"
+        report_type = None
+        sentiment_score = 72
+        dashboard = None
+        guardrail_reason = None
+
+    assert display_action_fields_for_result(Result(), report_language="zh") == {
+        "action": "avoid",
+        "action_label": "回避",
+    }
 
 
 def test_extract_decision_guardrail_reason_reads_dashboard_sources() -> None:

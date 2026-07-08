@@ -301,6 +301,8 @@ class NotificationService(
         if history_compare_n <= 0 or not results:
             return {"history_by_code": {}}
 
+        report_language = self._get_report_language(results)
+
         cache_key = (
             history_compare_n,
             tuple(sorted((r.code, getattr(r, 'query_id', '') or '') for r in results)),
@@ -321,6 +323,7 @@ class NotificationService(
                 codes,
                 limit=history_compare_n,
                 exclude_query_ids=exclude_ids,
+                report_language=report_language,
             )
         except Exception as e:
             logger.debug("History comparison skipped: %s", e)

@@ -31,6 +31,7 @@ from src.report_language import (
 from src.schemas.decision_action import (
     display_decision_type_for_result,
     display_operation_advice_for_result,
+    localize_action_label,
 )
 from src.utils.data_processing import (
     normalize_model_used,
@@ -214,6 +215,7 @@ def render(
         "get_chip_unavailable_reason": get_chip_unavailable_reason,
         "is_chip_structure_unavailable": is_chip_structure_unavailable,
         "localize_operation_advice": localize_operation_advice,
+        "localize_action_label": localize_action_label,
         "localize_trend_prediction": localize_trend_prediction,
         "localize_chip_health": localize_chip_health,
         "signal_attribution_has_content": signal_attribution_has_content,

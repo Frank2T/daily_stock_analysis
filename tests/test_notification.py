@@ -1009,6 +1009,45 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertIn("理由: 技术面走弱", detail_section)
 
     @mock.patch("src.notification.get_config")
+    @mock.patch("src.services.history_comparison_service.get_signal_changes_batch")
+    def test_generate_dashboard_report_localizes_history_compare_label_with_renderer(
+        self,
+        mock_get_signal_changes_batch: mock.MagicMock,
+        mock_get_config: mock.MagicMock,
+    ):
+        mock_get_config.return_value = _make_config(
+            report_renderer_enabled=True,
+            report_language="en",
+            report_history_compare_n=2,
+        )
+        mock_get_signal_changes_batch.return_value = {
+            "600519": [
+                {
+                    "created_at": "2026-07-01T10:00:00+08:00",
+                    "sentiment_score": 78,
+                    "operation_advice": "持有",
+                    "action_label": "回避",
+                    "trend_prediction": "看多",
+                },
+            ]
+        }
+        service = NotificationService()
+        result = AnalysisResult(
+            code="600519",
+            name="贵州茅台",
+            sentiment_score=72,
+            trend_prediction="看多",
+            operation_advice="持有",
+            analysis_summary="稳健",
+            report_language="en",
+        )
+
+        out = service.generate_dashboard_report([result], report_date="2026-07-01")
+
+        self.assertIn("| 2026-07-01T10:00 | 78 | Avoid |", out)
+        self.assertNotIn("| 2026-07-01T10:00 | 78 | 回避 |", out)
+
+    @mock.patch("src.notification.get_config")
     def test_aggregate_reports_show_compact_market_status_only(self, mock_get_config: mock.MagicMock):
         mock_get_config.return_value = _make_config(report_renderer_enabled=False)
         service = NotificationService()
@@ -1812,6 +1851,34 @@ class TestNotificationServiceReportGeneration(unittest.TestCase):
         self.assertEqual(first, {"history_by_code": {"600519": []}})
         self.assertEqual(second, {"history_by_code": {"600519": []}})
         mock_batch.assert_called_once()
+
+    @mock.patch("src.notification.get_config")
+    def test_history_compare_context_forwards_report_language(self, mock_get_config: mock.MagicMock):
+        mock_get_config.return_value = _make_config(report_language="en", report_history_compare_n=2)
+        service = NotificationService()
+        result = AnalysisResult(
+            code="600519",
+            name="贵州茅台",
+            sentiment_score=72,
+            trend_prediction="看多",
+            operation_advice="持有",
+            analysis_summary="稳健",
+            report_language="en",
+            query_id="q-lang",
+        )
+
+        with mock.patch(
+            "src.services.history_comparison_service.get_signal_changes_batch",
+            return_value={"600519": []},
+        ) as mock_batch:
+            service._get_history_compare_context([result])
+
+        mock_batch.assert_called_once_with(
+            ["600519"],
+            limit=2,
+            exclude_query_ids={"600519": "q-lang"},
+            report_language="en",
+        )
 
     @mock.patch("src.notification.get_config")
     @mock.patch("smtplib.SMTP_SSL")

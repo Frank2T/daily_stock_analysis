@@ -56,3 +56,41 @@ def test_record_to_signal_falls_back_to_action_label_when_action_absent() -> Non
     assert signal is not None
     assert signal["action"] == "alert"
     assert signal["action_label"] == "경고"
+
+
+def test_record_to_signal_localizes_action_with_override_language() -> None:
+    signal = _record_to_signal(
+        _history_record(
+            raw_result={
+                "operation_advice": "持有",
+                "report_language": "ko",
+                "guardrail_reason": None,
+            },
+            report_language="ko",
+            sentiment_score=72,
+        ),
+        report_language="en",
+    )
+
+    assert signal is not None
+    assert signal["action"] == "buy"
+    assert signal["action_label"] == "Buy"
+
+
+def test_record_to_signal_localizes_action_label_with_language_override() -> None:
+    signal = _record_to_signal(
+        _history_record(
+            raw_result={
+                "action": None,
+                "action_label": "回避",
+                "operation_advice": "持有",
+                "report_language": "zh",
+            },
+            report_language="zh",
+        ),
+        report_language="en",
+    )
+
+    assert signal is not None
+    assert signal["action"] == "avoid"
+    assert signal["action_label"] == "Avoid"
