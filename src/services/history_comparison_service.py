@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from src.storage import DatabaseManager
 from src.report_language import normalize_report_language
-from src.schemas.decision_action import build_action_fields
+from src.schemas.decision_action import display_action_fields
 from src.schemas.decision_scale import extract_decision_guardrail_reason
 from src.utils.data_processing import parse_json_field
 
@@ -31,20 +31,21 @@ def _record_to_signal(
         raw_result = {}
 
     operation_advice = raw_result.get("operation_advice") or getattr(record, "operation_advice", None)
-    explicit_action = raw_result.get("action") or raw_result.get("action_label")
+    explicit_action = raw_result.get("action")
+    action_label = raw_result.get("action_label")
     resolved_report_language = normalize_report_language(
         report_language
         or raw_result.get("report_language")
         or getattr(record, "report_language", None)
     )
-    action_fields = build_action_fields(
+    action_fields = display_action_fields(
         operation_advice=operation_advice,
         explicit_action=explicit_action,
+        action_label=action_label,
         report_type=getattr(record, "report_type", None),
         report_language=resolved_report_language,
         sentiment_score=getattr(record, "sentiment_score", None),
         guardrail_reason=extract_decision_guardrail_reason(raw_result),
-        align_with_score=True,
     )
 
     try:

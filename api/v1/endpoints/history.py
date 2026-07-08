@@ -43,7 +43,7 @@ from src.report_language import (
     normalize_report_language,
 )
 from src.services.history_service import HistoryService, MarkdownReportGenerationError
-from src.schemas.decision_action import build_action_fields
+from src.schemas.decision_action import display_action_fields
 from src.schemas.decision_scale import extract_decision_guardrail_reason
 from src.utils.data_processing import (
     normalize_model_used,
@@ -335,17 +335,16 @@ def get_stock_bar(
                 record.operation_advice,
                 _raw_result_value(raw_result, "operation_advice"),
             )
-            action_fields = build_action_fields(
+            action_fields = display_action_fields(
                 operation_advice=operation_advice,
-                explicit_action=_raw_result_value(raw_result, "action")
-                or _raw_result_value(raw_result, "action_label"),
+                explicit_action=_raw_result_value(raw_result, "action"),
+                action_label=_raw_result_value(raw_result, "action_label"),
                 report_type=record.report_type,
                 report_language=normalize_report_language(
                     _raw_result_value(raw_result, "report_language")
                 ),
                 sentiment_score=sentiment_score,
                 guardrail_reason=extract_decision_guardrail_reason(raw_result),
-                align_with_score=True,
             )
 
             display_stock_code = service._display_stock_code(record.code)

@@ -40,6 +40,26 @@ def test_record_to_signal_uses_raw_action_field_before_action_label() -> None:
     assert signal["action_label"] == "매도"
 
 
+def test_record_to_signal_prefers_action_label_when_action_invalid() -> None:
+    signal = _record_to_signal(
+        _history_record(
+            raw_result={
+                "action": "unknown",
+                "action_label": "回避",
+                "operation_advice": "持有",
+                "report_language": "zh",
+                "guardrail_reason": None,
+            },
+            report_language="zh",
+            sentiment_score=84,
+        )
+    )
+
+    assert signal is not None
+    assert signal["action"] == "avoid"
+    assert signal["action_label"] == "回避"
+
+
 def test_record_to_signal_falls_back_to_action_label_when_action_absent() -> None:
     signal = _record_to_signal(
         _history_record(
