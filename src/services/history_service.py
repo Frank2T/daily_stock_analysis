@@ -36,6 +36,7 @@ from src.market_phase_summary import (
     rebuild_market_phase_summary_for_stock_code,
 )
 from src.schemas.decision_action import build_action_fields, display_operation_advice_for_result
+from src.schemas.decision_scale import extract_decision_guardrail_reason
 from src.utils.sniper_points import find_sniper_points
 from src.utils.data_processing import (
     extract_realtime_detail_fields,
@@ -588,11 +589,11 @@ class HistoryService:
         raw = raw_result if isinstance(raw_result, dict) else {}
         return build_action_fields(
             operation_advice=raw.get("operation_advice") or getattr(record, "operation_advice", None),
-            explicit_action=raw.get("action"),
+            explicit_action=raw.get("action") or raw.get("action_label"),
             report_type=getattr(record, "report_type", None),
             report_language=normalize_report_language(raw.get("report_language")),
             sentiment_score=getattr(record, "sentiment_score", None),
-            guardrail_reason=raw.get("guardrail_reason") or raw.get("downgrade_reason"),
+            guardrail_reason=extract_decision_guardrail_reason(raw),
             align_with_score=True,
         )
 

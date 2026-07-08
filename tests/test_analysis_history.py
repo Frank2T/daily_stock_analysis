@@ -825,6 +825,75 @@ class AnalysisHistoryTestCase(unittest.TestCase):
         self.assertEqual(response.items[0].action, "buy")
         self.assertEqual(response.items[0].action_label, "Buy")
 
+    def test_stock_bar_item_prefers_raw_action_label_over_score_alignment(self) -> None:
+        if get_stock_bar is None:
+            self.skipTest("fastapi is not installed in this test environment")
+
+        result = self._build_result()
+        result.operation_advice = "持有"
+        result.action = None
+        result.action_label = "回避"
+        result.sentiment_score = 84
+
+        saved = self.db.save_analysis_history(
+            result=result,
+            query_id="query_stock_bar_action_label",
+            report_type="detailed",
+            news_content="个股正文",
+            context_snapshot=None,
+            save_snapshot=False,
+        )
+        self.assertGreater(saved, 0)
+
+        response = get_stock_bar(
+            start_date=None,
+            end_date=None,
+            limit=10,
+            db_manager=self.db,
+        )
+
+        self.assertEqual(len(response.items), 1)
+        self.assertEqual(response.items[0].action, "avoid")
+        self.assertEqual(response.items[0].action_label, "回避")
+
+    def test_stock_bar_item_keeps_guardrailed_advice_from_dashboard_when_aligning(self) -> None:
+        if get_stock_bar is None:
+            self.skipTest("fastapi is not installed in this test environment")
+
+        result = self._build_result()
+        result.operation_advice = "持有"
+        result.sentiment_score = 84
+        result.dashboard = {
+            "decision_stability": {
+                "applied": True,
+                "reason": "资金流不稳定，暂缓进场",
+            }
+        }
+
+        saved = self.db.save_analysis_history(
+            result=result,
+            query_id="query_stock_bar_guardrail",
+            report_type="detailed",
+            news_content="个股正文",
+            context_snapshot={
+                "market_phase_summary": {"market": "cn", "phase": "intraday"},
+            },
+            save_snapshot=False,
+        )
+        self.assertGreater(saved, 0)
+
+        response = get_stock_bar(
+            start_date=None,
+            end_date=None,
+            limit=10,
+            db_manager=self.db,
+        )
+
+        self.assertEqual(len(response.items), 1)
+        self.assertEqual(response.items[0].sentiment_score, 84)
+        self.assertEqual(response.items[0].action, "hold")
+        self.assertEqual(response.items[0].action_label, "持有")
+
     def test_history_detail_uses_service_resolved_action_fields(self) -> None:
         if get_history_detail is None:
             self.skipTest("fastapi is not installed in this test environment")
