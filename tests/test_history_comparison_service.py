@@ -94,3 +94,22 @@ def test_record_to_signal_localizes_action_label_with_language_override() -> Non
     assert signal is not None
     assert signal["action"] == "avoid"
     assert signal["action_label"] == "Avoid"
+
+
+def test_record_to_signal_preserves_hold_with_decision_score_guardrail_reason() -> None:
+    signal = _record_to_signal(
+        _history_record(
+            raw_result={
+                "action": "hold",
+                "operation_advice": "持有",
+                "report_language": "zh",
+                "decision_score_guardrail_reason": "评分偏高但风险仍存",
+            },
+            report_language="zh",
+            sentiment_score=80,
+        )
+    )
+
+    assert signal is not None
+    assert signal["action"] == "hold"
+    assert signal["action_label"] == "持有"

@@ -43,14 +43,7 @@ def _record_to_signal(
         report_type=getattr(record, "report_type", None),
         report_language=resolved_report_language,
         sentiment_score=getattr(record, "sentiment_score", None),
-        guardrail_reason=extract_decision_guardrail_reason(
-            {
-                "guardrail_reason": raw_result.get("guardrail_reason"),
-                "downgrade_reason": raw_result.get("downgrade_reason"),
-                "dashboard": raw_result.get("dashboard"),
-                "metadata": raw_result.get("metadata"),
-            }
-        ),
+        guardrail_reason=extract_decision_guardrail_reason(raw_result),
         align_with_score=True,
     )
 
