@@ -1572,11 +1572,154 @@ class AkshareFetcher(BaseFetcher):
             circuit_breaker.record_failure(sina_key, str(e))
             return None
     
+    def _cyq_from_sina_kline(self, stock_code: str) -> Optional[ChipDistribution]:
+        """
+        使用新浪K线数据计算筹码分布（CYQ算法兜底）
+        
+        当 ak.stock_cyq_em() 因网络/IP限制失败时，用此方法兜底。
+        新浪接口 hq.sinajs.cn 在PVE上通常可用。
+        
+        Args:
+            stock_code: A股股票代码（6位数字）
+            
+        Returns:
+            ChipDistribution 对象，失败返回 None
+        """
+        import akshare as ak
+        import numpy as np
+        
+        try:
+            # 构建新浪市场前缀
+            market_code = f"sh{stock_code}" if stock_code.startswith('6') else f"sz{stock_code}"
+            
+            logger.info(f"[CYQ-Fallback] 从新浪获取 {stock_code} K线数据...")
+            df = ak.stock_zh_a_daily(symbol=market_code, adjust='')
+            
+            if df.empty or len(df) < 30:
+                logger.warning(f"[CYQ-Fallback] {stock_code} K线数据不足 ({len(df)}条)")
+                return None
+            
+            logger.info(f"[CYQ-Fallback] 获取到 {len(df)} 条K线，最新日期 {df['date'].iloc[-1]}")
+            
+            # --- CYQ 算法计算 ---
+            lookback = 120
+            kdf = df.tail(lookback).copy().reset_index(drop=True)
+            
+            opens = kdf['open'].values
+            highs = kdf['high'].values
+            lows = kdf['low'].values
+            closes = kdf['close'].values
+            turnovers = kdf['turnover'].values  # 新浪的turnover已是小数（0.xx）
+            
+            n = len(kdf)
+            maxprice = np.max(highs)
+            minprice = np.min(lows)
+            factor = 150
+            accuracy = max(0.01, (maxprice - minprice) / (factor - 1))
+            
+            xdata = np.zeros(factor)
+            yrange = np.array([minprice + accuracy * i for i in range(factor)])
+            
+            for i in range(n):
+                o = opens[i]; h = highs[i]; l = lows[i]; c = closes[i]
+                avg = (o + c + h + l) / 4.0
+                hsl = min(1.0, turnovers[i])  # sina已经是小数
+                
+                H = int(np.floor((h - minprice) / accuracy))
+                L = int(np.ceil((l - minprice) / accuracy))
+                H = min(H, factor - 1); L = max(L, 0)
+                
+                if h == l:
+                    GPoint_val = factor - 1
+                    GPoint_idx = int(np.floor((avg - minprice) / accuracy))
+                else:
+                    GPoint_val = 2.0 / (h - l)
+                    GPoint_idx = int(np.floor((avg - minprice) / accuracy))
+                
+                xdata *= (1.0 - hsl)
+                
+                if h == l:
+                    idx = max(0, min(GPoint_idx, factor - 1))
+                    xdata[idx] += GPoint_val * hsl / 2.0
+                else:
+                    for j in range(L, H + 1):
+                        if j >= factor or j < 0:
+                            continue
+                        curprice = minprice + accuracy * j
+                        if abs(avg - l) < 1e-8:
+                            xdata[j] += GPoint_val * hsl
+                        elif curprice <= avg:
+                            xdata[j] += (curprice - l) / (avg - l) * GPoint_val * hsl
+                        else:
+                            if abs(h - avg) < 1e-8:
+                                xdata[j] += GPoint_val * hsl
+                            else:
+                                xdata[j] += (h - curprice) / (h - avg) * GPoint_val * hsl
+            
+            current_price = float(closes[-1])
+            total_chips = float(np.sum(xdata))
+            
+            if total_chips <= 0:
+                logger.warning(f"[CYQ-Fallback] {stock_code} 筹码总量为0")
+                return None
+            
+            # 获利比例
+            below_mask = yrange <= current_price
+            chips_below = float(np.sum(xdata[below_mask]))
+            profit_ratio = chips_below / total_chips
+            
+            # 辅助：找到累计筹码百分比对应的价格
+            def get_cost_by_chip(target_chip):
+                cumsum = 0.0
+                for i in range(factor):
+                    cumsum += float(xdata[i])
+                    if cumsum > target_chip:
+                        return minprice + i * accuracy
+                return minprice + (factor - 1) * accuracy
+            
+            avg_cost = get_cost_by_chip(total_chips * 0.5)
+            
+            def compute_percent_chips(percent):
+                half = (1.0 - percent) / 2.0
+                p_low = get_cost_by_chip(total_chips * half)
+                p_high = get_cost_by_chip(total_chips * (half + percent))
+                conc = 0.0 if (p_low + p_high) == 0 else (p_high - p_low) / (p_low + p_high)
+                return p_low, p_high, conc
+            
+            p90_low, p90_high, c90 = compute_percent_chips(0.9)
+            p70_low, p70_high, c70 = compute_percent_chips(0.7)
+            
+            chip = ChipDistribution(
+                code=stock_code,
+                date=str(kdf['date'].iloc[-1]),
+                source='akshare_cyq_sina_fallback',
+                profit_ratio=round(profit_ratio, 4),
+                avg_cost=round(avg_cost, 2),
+                cost_90_low=round(p90_low, 2),
+                cost_90_high=round(p90_high, 2),
+                concentration_90=round(c90, 4),
+                cost_70_low=round(p70_low, 2),
+                cost_70_high=round(p70_high, 2),
+                concentration_70=round(c70, 4),
+            )
+            
+            logger.info(f"[CYQ-Fallback] {stock_code} 筹码分布(新浪): "
+                       f"日期={chip.date}, 获利比例={chip.profit_ratio:.1%}, "
+                       f"平均成本={chip.avg_cost}, 90%集中度={chip.concentration_90:.2%}")
+            return chip
+            
+        except Exception as e:
+            logger.error(f"[CYQ-Fallback] {stock_code} 新浪CYQ计算失败: {e}")
+            return None
+
     def get_chip_distribution(self, stock_code: str) -> Optional[ChipDistribution]:
         """
         获取筹码分布数据
         
-        数据来源：ak.stock_cyq_em()
+        数据来源（双通道兜底）：
+        1. 主通道：ak.stock_cyq_em() — 东方财富push2his接口
+        2. 备选：新浪K线 + 本地CYQ算法 — PVE上被push2his封IP时兜底
+        
         包含：获利比例、平均成本、筹码集中度
         
         注意：ETF/指数没有筹码分布数据，会直接返回 None
@@ -1589,23 +1732,19 @@ class AkshareFetcher(BaseFetcher):
         """
         import akshare as ak
 
-        # 美股没有筹码分布数据（Akshare 不支持）
+        # 美股/港股/ETF 没有筹码分布数据
         if _is_us_code(stock_code):
             logger.debug(f"[API跳过] {stock_code} 是美股，无筹码分布数据")
             return None
-
-        # 港股没有筹码分布数据（stock_cyq_em 是 A 股专属接口）
         if _is_hk_code(stock_code):
             logger.debug(f"[API跳过] {stock_code} 是港股，无筹码分布数据")
             return None
-
-        # ETF/指数没有筹码分布数据
         if _is_etf_code(stock_code):
             logger.debug(f"[API跳过] {stock_code} 是 ETF/指数，无筹码分布数据")
             return None
         
+        # ----- 主通道：ak.stock_cyq_em() -----
         try:
-            # 防封禁策略
             self._set_random_user_agent()
             self._enforce_rate_limit()
             
@@ -1619,18 +1758,15 @@ class AkshareFetcher(BaseFetcher):
             
             if df.empty:
                 logger.warning(f"[API返回] ak.stock_cyq_em 返回空数据, 耗时 {api_elapsed:.2f}s")
-                return None
+                raise ValueError("empty dataframe")
             
             logger.info(f"[API返回] ak.stock_cyq_em 成功: 返回 {len(df)} 天数据, 耗时 {api_elapsed:.2f}s")
-            logger.debug(f"[API返回] 筹码数据列名: {list(df.columns)}")
             
-            # 取最新一天的数据
             latest = df.iloc[-1]
-            
-            # 使用 realtime_types.py 中的统一转换函数
             chip = ChipDistribution(
                 code=stock_code,
                 date=str(latest.get('日期', '')),
+                source='akshare',
                 profit_ratio=safe_float(latest.get('获利比例')),
                 avg_cost=safe_float(latest.get('平均成本')),
                 cost_90_low=safe_float(latest.get('90成本-低')),
@@ -1642,13 +1778,15 @@ class AkshareFetcher(BaseFetcher):
             )
             
             logger.info(f"[筹码分布] {stock_code} 日期={chip.date}: 获利比例={chip.profit_ratio:.1%}, "
-                       f"平均成本={chip.avg_cost}, 90%集中度={chip.concentration_90:.2%}, "
-                       f"70%集中度={chip.concentration_70:.2%}")
+                       f"平均成本={chip.avg_cost}, 90%集中度={chip.concentration_90:.2%}")
             return chip
             
         except Exception as e:
-            logger.error(f"[API错误] 获取 {stock_code} 筹码分布失败: {e}")
-            return None
+            logger.warning(f"[API错误] ak.stock_cyq_em 主通道失败: {e}")
+            logger.info(f"[筹码分布] {stock_code} 切换至新浪CYQ兜底通道...")
+            
+            # ----- 备选通道：新浪K线 + 本地CYQ算法 -----
+            return self._cyq_from_sina_kline(stock_code)
     
     def get_enhanced_data(self, stock_code: str, days: int = 60) -> Dict[str, Any]:
         """
