@@ -58,6 +58,19 @@ jobs:
       - name: 创建必要目录
         run: |
           mkdir -p data logs reports
+
+      - name: 同步共享持仓并生成分析列表
+        env:
+          HOLDINGS_REPO_TOKEN: ${{ secrets.HOLDINGS_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HOLDINGS_REPO_TOKEN:-}" ]; then
+            echo "❌ 缺少 HOLDINGS_REPO_TOKEN，拒绝回退到过时的 STOCK_LIST"
+            exit 1
+          fi
+          rm -rf .holdings-sync
+          git clone --depth 1 --branch main "https://x-access-token:${HOLDINGS_REPO_TOKEN}@github.com/Frank2T/HermesCommonMemory.git" .holdings-sync
+          HOLDINGS_JSON=.holdings-sync/holdings.json python scripts/sync_holdings_stock_list.py
       
       - name: 执行股票分析
         env:
@@ -378,7 +391,8 @@ jobs:
           # ==========================================
           # 自选股配置
           # ==========================================
-          # 避免直接写入 STOCK_LIST，保留同名 Environment variables 的 runner 环境值。
+          # STOCK_LIST 在前置步骤由 HermesCommonMemory/holdings.json 生成。
+          # 保留配置字段仅用于兼容手动运行，不允许覆盖同步结果。
           STOCK_LIST_CONFIG: ${{ vars.STOCK_LIST || secrets.STOCK_LIST }}
           MARKET_REVIEW_REGION: ${{ vars.MARKET_REVIEW_REGION || secrets.MARKET_REVIEW_REGION || 'cn' }}
           MARKET_REVIEW_COLOR_SCHEME: ${{ vars.MARKET_REVIEW_COLOR_SCHEME || secrets.MARKET_REVIEW_COLOR_SCHEME || 'green_up' }}
@@ -411,10 +425,9 @@ jobs:
           # 1. Repository/Environment secrets 或 Repository variables（STOCK_LIST_CONFIG）
           # 2. 同名 Environment variables 注入的 runner 环境变量（STOCK_LIST）
           # 3. 最小默认值
-          if [ -n "${STOCK_LIST_CONFIG:-}" ]; then
-            export STOCK_LIST="$STOCK_LIST_CONFIG"
-          elif [ -z "${STOCK_LIST:-}" ]; then
-            export STOCK_LIST="600519"
+          if [ -z "${STOCK_LIST:-}" ]; then
+            echo "❌ 共享持仓没有生成 STOCK_LIST"
+            exit 1
           fi
 
           # 处理 LITELLM YAML 配置文件

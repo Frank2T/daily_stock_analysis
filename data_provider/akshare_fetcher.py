@@ -1759,10 +1759,19 @@ class AkshareFetcher(BaseFetcher):
             if df.empty:
                 logger.warning(f"[API返回] ak.stock_cyq_em 返回空数据, 耗时 {api_elapsed:.2f}s")
                 raise ValueError("empty dataframe")
+
+            # 云端东财接口偶尔返回非最新/不完整数据；不要把它当成有效筹码。
+            required_columns = {'日期', '获利比例', '平均成本'}
+            if not required_columns.issubset(set(df.columns)):
+                raise ValueError(f"missing chip columns: {required_columns - set(df.columns)}")
+            latest = df.iloc[-1]
+            if safe_float(latest.get('平均成本')) is None or safe_float(latest.get('平均成本')) <= 0:
+                raise ValueError("invalid average cost")
+            if safe_float(latest.get('获利比例')) is None:
+                raise ValueError("invalid profit ratio")
             
             logger.info(f"[API返回] ak.stock_cyq_em 成功: 返回 {len(df)} 天数据, 耗时 {api_elapsed:.2f}s")
             
-            latest = df.iloc[-1]
             chip = ChipDistribution(
                 code=stock_code,
                 date=str(latest.get('日期', '')),
