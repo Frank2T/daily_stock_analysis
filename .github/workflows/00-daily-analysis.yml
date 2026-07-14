@@ -539,6 +539,15 @@ jobs:
             logs/
           retention-days: 30
       
+      - name: 发送 Markdown 报告和总结到 Telegram
+        if: success()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+          python scripts/github_telegram_report.py
+
       - name: 显示运行结果
         if: always()
         run: |
