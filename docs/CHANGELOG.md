@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [改进] GitHub Actions 日常分析改为仅保存 Markdown 报告 artifact，由本地 Hermes 下载报告文件并发送后再推送摘要，避免云端直接发送完整报告正文。
 - [修复] 筹码分布新增新浪K线+本地CYQ算法兜底：当 East Money push2his API 被网络/IP限制时自动降级到 Sina K-line 数据本地计算筹码分布，确保筹码数据在所有运行环境均可获取。
 - [改进] GitHub Actions 每日分析工作流补齐 TickFlow 数据源环境变量映射，并收敛 README 数据源稳定性说明到完整指南。
 - [修复] WebUI 启动时显式 `--host` / `--port` 不再被 `.env` 中的 `WEBUI_HOST` / `WEBUI_PORT` 覆盖，未传 CLI 参数时统一使用解析后的运行时配置。
