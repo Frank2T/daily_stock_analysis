@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -75,6 +76,37 @@ def fetch_eastmoney_rank() -> list[str]:
     return stocks
 
 
+def fetch_iwencai_rank() -> list[str]:
+    """Fetch iWencai's live top-100 popularity list."""
+    api_key = os.environ.get("IWENCAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("IWENCAI_API_KEY is not configured")
+    payload = json.dumps({
+        "query": "今日A股人气排名前100名 股票代码 股票简称",
+        "page": "1", "limit": "100", "is_cache": "1", "expand_index": "true",
+    }, ensure_ascii=False).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "X-Claw-Call-Type": "normal",
+        "X-Claw-Skill-Id": "hithink-astock-selector",
+        "X-Claw-Skill-Version": "1.0.0",
+        "X-Claw-Plugin-Id": "none",
+        "X-Claw-Plugin-Version": "none",
+        "X-Claw-Trace-Id": secrets.token_hex(32),
+    }
+    raw = http_json("https://openapi.iwencai.com/v1/query2data", data=payload, headers=headers)
+    if not isinstance(raw, dict):
+        raise RuntimeError("iWencai response is not an object")
+    rows = raw.get("datas") or raw.get("data") or []
+    text = json.dumps(rows, ensure_ascii=False)
+    stocks = re.findall(r"(?<!\d)(?:000|001|002|003|300|600|601|603|605|688|8\d)\d{3}(?!\d)", text)
+    stocks = list(dict.fromkeys(stocks))
+    if len(stocks) < 5:
+        raise RuntimeError(f"iWencai returned too few stock codes: {len(stocks)}")
+    return stocks[:100]
+
+
 def fetch_mx_rank() -> list[str]:
     """Optional MX fallback. Missing/unsupported MX is a normal fallback case."""
     script = next((path for path in MX_SCRIPTS if path.is_file()), None)
@@ -116,30 +148,39 @@ def write_stock_list(stock_list: str) -> None:
 
 def main() -> int:
     print("🔍 拉取实时热榜...")
-    source = ""
-    hot_stocks: list[str] = []
     errors: list[str] = []
-    for name, fetcher in (("东方财富人气榜", fetch_eastmoney_rank), ("妙想热榜", fetch_mx_rank)):
-        try:
-            hot_stocks = fetcher()
-            source = name
-            print(f"   ✅ 来源：{source}（实时，{len(hot_stocks)} 只）")
-            break
-        except Exception as exc:
-            errors.append(f"{name}: {exc}")
-            print(f"   ⚠️ {name}不可用：{exc}")
-    if not hot_stocks:
-        hot_stocks = CACHE_LIST
-        source = "内置缓存（实时热榜全部失败）"
-        print("   ❌ 实时热榜全部失败，最后才使用内置缓存列表")
+    try:
+        eastmoney = fetch_eastmoney_rank()[:100]
+        print(f"   ✅ 东方财富人气榜：实时 {len(eastmoney)} 只")
+    except Exception as exc:
+        eastmoney = []
+        errors.append(f"东方财富人气榜: {exc}")
+        print(f"   ⚠️ 东方财富人气榜不可用：{exc}")
+    try:
+        iwencai = fetch_iwencai_rank()[:100]
+        print(f"   ✅ 问财热榜：实时 {len(iwencai)} 只")
+    except Exception as exc:
+        iwencai = []
+        errors.append(f"问财热榜: {exc}")
+        print(f"   ⚠️ 问财热榜不可用：{exc}")
+
+    if eastmoney and iwencai:
+        iwencai_set = set(iwencai)
+        intersection = [code for code in eastmoney if code in iwencai_set]
+        main_board = [code for code in intersection if is_main_board(code)]
+        all_stocks = main_board[:40]
+        source = "东方财富∩问财（实时交集）"
+        print(f"   ✅ 两榜交集：{len(intersection)} 只；主板交集：{len(main_board)} 只")
+    else:
+        all_stocks = [code for code in CACHE_LIST if is_main_board(code)][:40]
+        source = "内置缓存（两榜至少一个实时源失败）"
+        print("   ❌ 无法完成两榜交集，最后使用缓存前40只")
         for error in errors:
             print(f"      - {error}")
 
-    main_board = [code for code in hot_stocks if is_main_board(code)]
-    all_stocks = list(dict.fromkeys(main_board + FIXED_PICKS))
     stock_list = ",".join(all_stocks)
     write_stock_list(stock_list)
-    print(f"   主板过滤后：{len(main_board)} 只；合并固定自选后：{len(all_stocks)} 只")
+    print(f"   最终分析列表：{len(all_stocks)} 只（上限40）")
     print(f"✅ STOCK_LIST 已更新，来源={source}")
     print(f"RESULT={stock_list}")
     return 0
