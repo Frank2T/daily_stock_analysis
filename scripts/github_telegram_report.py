@@ -32,9 +32,13 @@ def post(method: str, fields: dict[str, str], file_field: tuple[str, bytes, str]
 
 def main() -> int:
     report_dir = Path("reports")
-    reports = sorted(report_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+    reports = sorted(
+        report_dir.glob("report_*.md"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     if not reports:
-        print("No Markdown report found", file=sys.stderr)
+        print("No stock analysis report found (expected reports/report_YYYYMMDD.md)", file=sys.stderr)
         return 2
     report = reports[0]
     text = report.read_text(encoding="utf-8")
