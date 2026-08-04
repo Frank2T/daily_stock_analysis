@@ -2857,7 +2857,24 @@ class GeminiAnalyzer:
             return self._extract_text_blocks(content)
         if isinstance(content, str):
             return content.strip()
-        return str(content).strip() if content is not None else ""
+        if content is not None:
+            return str(content).strip()
+
+        # OpenCode Go 上的 DeepSeek 推理模型（deepseek-v4-flash）会把答案放在
+        # reasoning_content 而非 content 中（content 为空字符串/None）。
+        # 回退读取 reasoning_content，避免误判为"空响应"而触发 fallback。
+        reasoning = None
+        if message is not None:
+            reasoning = self._get_response_field(message, "reasoning_content")
+        if reasoning is None:
+            reasoning = self._get_response_field(choice, "reasoning_content")
+        if isinstance(reasoning, str):
+            return reasoning.strip()
+        if isinstance(reasoning, list):
+            return self._extract_text_blocks(reasoning)
+        if reasoning is not None:
+            return str(reasoning).strip()
+        return ""
 
     def _extract_stream_text(self, chunk: Any) -> str:
         """Extract provider-agnostic text delta from a LiteLLM streaming chunk."""
@@ -2894,7 +2911,23 @@ class GeminiAnalyzer:
                         parts.append(text)
             return "".join(parts)
 
-        return content if isinstance(content, str) else ""
+        if isinstance(content, str):
+            return content
+
+        # stream 场景同样支持 OpenCode Go 推理模型：content 缺失时回退 reasoning_content
+        reasoning = None
+        if isinstance(delta, dict):
+            reasoning = delta.get("reasoning_content")
+        elif delta is not None:
+            reasoning = getattr(delta, "reasoning_content", None)
+        if reasoning is None:
+            if isinstance(message, dict):
+                reasoning = message.get("reasoning_content")
+            elif message is not None:
+                reasoning = getattr(message, "reasoning_content", None)
+        if isinstance(reasoning, str):
+            return reasoning
+        return ""
 
     def _consume_litellm_stream(
         self,
