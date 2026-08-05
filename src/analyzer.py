@@ -4384,7 +4384,13 @@ class GeminiAnalyzer:
         apply_placeholder_fill(result, missing_fields)
 
     def _extract_analysis_json_object(self, response_text: str) -> Tuple[str, Dict[str, Any]]:
-        """Extract the single allowed JSON object from an LLM response."""
+        """Extract the single allowed JSON object from an LLM response.
+
+        容错策略（2026-08-05，OpenCode Go 网关推理模型 JSON 输出不稳定）：
+        1. 先按严格路径提取：整段纯 JSON / 单个围栏且围栏外无杂质
+        2. 严格路径失败时，不再直接放弃，而是剥离 markdown 围栏与前后杂质，
+           扫描文本找「第一个合法 JSON 对象」；只有确实找不到才报错。
+        """
 
         text = response_text or ""
         stripped = text.strip()
@@ -4397,28 +4403,70 @@ class GeminiAnalyzer:
         )
         fenced_matches = list(fence_pattern.finditer(text))
         if len(fenced_matches) > 1:
-            raise ValueError("ambiguous_json")
+            # 多围栏（歧义）：逐个尝试取合法 JSON 对象，避免因次要杂质围栏整体失败
+            for fm in fenced_matches:
+                try:
+                    json_str = fm.group("body").strip()
+                    data = self._load_analysis_json_candidate(json_str)
+                    return json_str, data
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            return self._extract_first_json_object(text)
         if len(fenced_matches) == 1:
             match = fenced_matches[0]
             outside = (text[:match.start()] + text[match.end():]).strip()
             if outside:
-                raise ValueError("ambiguous_json")
+                # 围栏外有杂质：优先从围栏体取 JSON，仍失败则整体扫描
+                try:
+                    json_str = match.group("body").strip()
+                    data = self._load_analysis_json_candidate(json_str)
+                    return json_str, data
+                except (json.JSONDecodeError, TypeError):
+                    return self._extract_first_json_object(text)
             fence_lang = (match.group("lang") or "").strip().lower()
             if fence_lang not in {"", "json"}:
-                raise ValueError("ambiguous_json")
+                # 围栏语言标注异常（如 ```text）：仍尝试解析围栏体
+                try:
+                    json_str = match.group("body").strip()
+                    data = self._load_analysis_json_candidate(json_str)
+                    return json_str, data
+                except (json.JSONDecodeError, TypeError):
+                    return self._extract_first_json_object(text)
             json_str = match.group("body").strip()
             data = self._load_analysis_json_candidate(json_str)
             return json_str, data
         if "```" in text:
-            raise ValueError("ambiguous_json")
+            # 有围栏标记但无法用正则匹配（如未闭合/错位）：整体扫描兜底
+            return self._extract_first_json_object(text)
 
         try:
             data = self._load_analysis_json_candidate(stripped)
         except json.JSONDecodeError as exc:
-            if self._contains_embedded_json_object(text):
-                raise ValueError("ambiguous_json") from exc
-            raise
+            # 整段解析失败：扫描文本找第一个合法 JSON 对象（容错提取）。
+            # 若存在多个嵌入式 JSON 对象（歧义），仍优先尝试取第一个，
+            # 只有在完全找不到合法对象时才抛错。
+            return self._extract_first_json_object(text)
         return stripped, data
+
+    def _extract_first_json_object(self, text: str) -> Tuple[str, Dict[str, Any]]:
+        """从 LLM 响应中剥离杂质，提取第一个合法 JSON 对象（dict）。
+
+        从文本中每个 '{' 位置尝试 raw_decode，取第一个能完整解析为 dict 的
+        对象。找不到时抛 ValueError。用于 OpenCode Go 推理模型返回
+        「解释文字 + JSON + 结尾注释」混合内容时的容错提取。
+        """
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                obj, end = decoder.raw_decode(text[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict) and end > 1:
+                json_str = text[index:index + end].strip()
+                return json_str, obj
+        raise ValueError("no_json_object_found")
 
     def _load_analysis_json_candidate(self, json_str: str) -> Dict[str, Any]:
         """Parse one already-selected JSON candidate, repairing common LLM JSON drift."""
