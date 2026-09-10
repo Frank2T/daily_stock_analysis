@@ -32,13 +32,20 @@ def post(method: str, fields: dict[str, str], file_field: tuple[str, bytes, str]
 
 def main() -> int:
     report_dir = Path("reports")
+    # 先找 report_*.md（个股决策仪表盘），没有则找 market_review_*.md（大盘复盘）
     reports = sorted(
         report_dir.glob("report_*.md"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
     if not reports:
-        print("No stock analysis report found (expected reports/report_YYYYMMDD.md)", file=sys.stderr)
+        reports = sorted(
+            report_dir.glob("market_review_*.md"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    if not reports:
+        print("No stock analysis report found (expected reports/report_YYYYMMDD.md or market_review_YYYYMMDD.md)", file=sys.stderr)
         return 2
     report = reports[0]
     text = report.read_text(encoding="utf-8")
